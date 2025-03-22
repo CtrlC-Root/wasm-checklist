@@ -18,19 +18,19 @@ pub fn signal_handle(signal: c_int) callconv(.C) void {
 
 fn processModelRequest(
     comptime Model: type,
-    allocator: std.mem.Allocator,
+    request_allocator: std.mem.Allocator,
     model_allocator: std.mem.Allocator,
     model_store: *store.modelMemoryStore(Model),
     request: *std.http.Server.Request,
 ) !void {
-    const model_prefix = try std.fmt.allocPrint(allocator, "/{s}", .{Model.name});
-    defer allocator.free(model_prefix);
+    const model_prefix = try std.fmt.allocPrint(request_allocator, "/{s}", .{Model.name});
+    defer request_allocator.free(model_prefix);
 
     std.debug.assert(std.mem.startsWith(u8, request.head.target, model_prefix));
-    const target_without_prefix = request.head.target[model_prefix.len..];
+    const target_without_prefix = std.mem.trimLeft(u8, request.head.target[model_prefix.len..], "/"); // XXX
 
     // collection request
-    if (std.mem.eql(u8, target_without_prefix, "") or std.mem.eql(u8, target_without_prefix, "/")) {
+    if (target_without_prefix.len == 0) {
         switch (request.head.method) {
             // TODO: get all instances
             .GET => {
@@ -43,12 +43,12 @@ fn processModelRequest(
 
                 // parse request body as model data
                 const request_reader = try request.reader();
-                var json_reader = std.json.reader(allocator, request_reader);
+                var json_reader = std.json.reader(request_allocator, request_reader);
                 defer json_reader.deinit();
 
                 const user_parsed = try std.json.parseFromTokenSource(
                     Model.Data,
-                    allocator,
+                    request_allocator,
                     &json_reader,
                     .{},
                 );
@@ -60,8 +60,8 @@ fn processModelRequest(
                 std.debug.print("{s}: created instance: {d}\n", .{Model.name, instance_id});
 
                 // inform the client of the new instance
-                const response = try std.fmt.allocPrint(allocator, "{d}", .{ instance_id });
-                defer allocator.free(response);
+                const response = try std.fmt.allocPrint(request_allocator, "{d}", .{ instance_id });
+                defer request_allocator.free(response);
 
                 try request.respond(response, .{
                     .status = std.http.Status.created,
@@ -75,16 +75,14 @@ fn processModelRequest(
         }
     // instance request
     } else {
-        const instance_raw_id = std.mem.trimLeft(u8, target_without_prefix, "/"); // XXX: all wrong
-        const instance_id = try std.fmt.parseInt(Model.Id, instance_raw_id, 10);
-
+        const instance_id = try std.fmt.parseInt(Model.Id, target_without_prefix, 10);
         switch (request.head.method) {
             // get instance
             .GET => {
                 if (model_store.retrieve(instance_id)) |data| {
                     std.debug.print("{s}: retrieved instance: {d}\n", .{Model.name, instance_id});
-                    const response = try std.json.stringifyAlloc(allocator, data, .{});
-                    defer allocator.free(response);
+                    const response = try std.json.stringifyAlloc(request_allocator, data, .{});
+                    defer request_allocator.free(response);
 
                     try request.respond(response, .{
                         .extra_headers = &.{
@@ -130,10 +128,11 @@ fn processRequest(
     data: *store.MemoryDataStore,
     request: *std.http.Server.Request,
 ) !void {
-    if (std.mem.startsWith(u8, request.head.target, "/user")) {
+    // TODO: compile time generate code for each model? or processModelRequest() can raise error for not matching?
+    if (std.mem.startsWith(u8, request.head.target, "/user/") or std.mem.eql(u8, request.head.target, "/user")) {
         try processModelRequest(models.User, allocator, data.allocator, &data.users, request);
     }
-    else if (std.mem.startsWith(u8, request.head.target, "/checklist")) {
+    else if (std.mem.startsWith(u8, request.head.target, "/checklist/") or std.mem.eql(u8, request.head.target, "/checklist")) {
         try processModelRequest(models.Checklist, allocator, data.allocator, &data.checklists, request);
     }
     else {
@@ -148,7 +147,7 @@ fn processClient(
     data: *store.MemoryDataStore,
     connection: *std.net.Server.Connection,
 ) !void {
-    var buffer: [65535]u8 = undefined;
+    var buffer: [65535]u8 = undefined; // XXX: allocate fixed buffer
     var client = std.http.Server.init(connection.*, &buffer);
 
     while (client.state == .ready) {
@@ -157,7 +156,6 @@ fn processClient(
             break;
         }
 
-        // XXX: make this non-blocking
         var request = client.receiveHead() catch |err| switch (err) {
             std.http.Server.ReceiveHeadError.HttpConnectionClosing => break,
             else => return err,
@@ -203,7 +201,11 @@ pub fn main() !void {
 
     // create the server socket and listen for incoming connections
     const listen_address = try std.net.Address.parseIp("127.0.0.1", 8080);
-    var server = try std.net.Address.listen(listen_address, .{ .reuse_address = true });
+    var server = try std.net.Address.listen(listen_address, .{
+        .reuse_address = true,
+        .force_nonblocking = true,
+    });
+
     defer server.deinit();
 
     // server processing loop
@@ -216,7 +218,14 @@ pub fn main() !void {
 
         // accept and process a client connection
         // XXX: make this non-blocking
-        var client_connection = try server.accept();
+        var client_connection = server.accept() catch |err| switch (err) {
+            std.posix.AcceptError.WouldBlock => {
+                std.time.sleep(1000 * 250);
+                continue;
+            },
+            else => return err,
+        };
+
         try processClient(allocator, &data, &client_connection);
     }
 
