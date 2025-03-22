@@ -46,17 +46,17 @@ fn processModelRequest(
                 var json_reader = std.json.reader(request_allocator, request_reader);
                 defer json_reader.deinit();
 
-                const user_parsed = try std.json.parseFromTokenSource(
+                const data_parsed = try std.json.parseFromTokenSource(
                     Model.Data,
                     request_allocator,
                     &json_reader,
                     .{},
                 );
 
-                defer user_parsed.deinit();
+                defer data_parsed.deinit();
 
                 // create an instance of the model
-                const instance_id = try model_store.create(model_allocator, &user_parsed.value);
+                const instance_id = try model_store.create(model_allocator, &data_parsed.value);
                 std.debug.print("{s}: created instance: {d}\n", .{Model.name, instance_id});
 
                 // inform the client of the new instance
@@ -96,9 +96,38 @@ fn processModelRequest(
                     });
                 }
             },
-            // TODO: update instance
+            // update instance
             .PUT => {
-                try request.respond("TODO update instance", .{});
+                // XXX: make this a runtime error
+                std.debug.assert(std.mem.eql(u8, request.head.content_type.?, "application/json"));
+
+                // parse request body as model data
+                const request_reader = try request.reader();
+                var json_reader = std.json.reader(request_allocator, request_reader);
+                defer json_reader.deinit();
+
+                const data_parsed = try std.json.parseFromTokenSource(
+                    Model.Data,
+                    request_allocator,
+                    &json_reader,
+                    .{},
+                );
+
+                defer data_parsed.deinit();
+
+                // update the instance
+                const updated_instance_id = try model_store.update(model_allocator, instance_id, &data_parsed.value);
+                if (updated_instance_id) |_| {
+                    std.debug.print("{s}: instance updated: {d}\n", .{Model.name, instance_id});
+                    try request.respond("", .{
+                        .status = std.http.Status.no_content,
+                    });
+                } else {
+                    std.debug.print("{s}: instance not found: {d}\n", .{Model.name, instance_id});
+                    try request.respond("Not Found", .{
+                        .status = std.http.Status.not_found,
+                    });
+                }
             },
             // delete instance
             .DELETE => {

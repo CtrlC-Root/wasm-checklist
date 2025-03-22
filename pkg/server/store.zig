@@ -41,6 +41,17 @@ pub fn modelMemoryStore(comptime Model: type) type {
             return if (self.instances.getPtr(id)) |instance| instance.data else null;
         }
 
+        pub fn update(self: *Self, allocator: std.mem.Allocator, id: Self.Instance.Id, data: *const Model.Data) !?Self.Instance.Id {
+            const instance = self.instances.getPtr(id) orelse return null;
+
+            const existing_data = instance.data;
+            instance.data = try allocator.create(Model.Data);
+            instance.data.* = data.*;
+            allocator.destroy(existing_data);
+
+            return instance.id;
+        }
+
         pub fn destroy(self: *Self, allocator: std.mem.Allocator, id: Self.Instance.Id) ?Self.Instance.Id {
             if (self.instances.fetchRemove(id)) |entry| {
                 entry.value.deinit(allocator);
