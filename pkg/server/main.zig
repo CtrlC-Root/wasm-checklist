@@ -32,9 +32,24 @@ fn processModelRequest(
     // collection request
     if (target_without_prefix.len == 0) {
         switch (request.head.method) {
-            // TODO: get all instances
+            // get all instances
             .GET => {
-                try request.respond("TODO retrieve collection", .{});
+                var instances: std.ArrayListUnmanaged(*const Model) = .empty;
+                defer instances.deinit(request_allocator);
+
+                var instance_iterator = model_store.instances.valueIterator();
+                while (instance_iterator.next()) |instance| {
+                    try instances.append(request_allocator, instance);
+                }
+
+                const response = try std.json.stringifyAlloc(request_allocator, instances.items, .{});
+                defer request_allocator.free(response);
+
+                try request.respond(response, .{
+                    .extra_headers = &.{
+                        .{ .name = "Content-Type", .value = "application/json" },
+                    },
+                });
             },
             // create a new instance
             .POST => {
