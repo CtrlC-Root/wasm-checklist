@@ -40,3 +40,48 @@ export fn initialize() void {
 export fn finalize() void {
     // TODO: debug allocator deinit() if necessary
 }
+
+// Packed slice representation.
+fn PackedSlice(comptime T: type) type {
+    const PackedInt = @Type(.{
+        .int = .{
+            .bits = @typeInfo(usize).int.bits * 2,
+            .signedness = @typeInfo(usize).int.signedness,
+        },
+    });
+
+    return packed struct(PackedInt) {
+        const Self = @This();
+
+        ptr: usize,
+        len: usize,
+
+        const empty: Self = .{ .ptr = 0, .len = 0 };
+
+        fn init(data: []const T) Self {
+            return .{
+                .ptr = @intFromPtr(data.ptr),
+                .len = data.len,
+            };
+        }
+
+        fn native(self: Self) []const T {
+            return @as([*]T, @ptrFromInt(self.ptr))[0..self.len];
+        }
+    };
+}
+
+// Packed byte slice.
+const PackedByteSlice = PackedSlice(u8);
+
+// Allocate memory.
+export fn allocBytes(size: usize) PackedByteSlice {
+    const data = client.allocator.alloc(u8, size) catch @panic("out of memory");
+    return PackedByteSlice.init(data);
+}
+
+// Free memory.
+export fn freeBytes(slice: PackedByteSlice) void {
+    std.debug.assert(slice.ptr != 0 or slice.len != 0);
+    client.allocator.free(slice.native());
+}
