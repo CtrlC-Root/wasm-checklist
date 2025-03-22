@@ -1,3 +1,3 @@
-# WebAssembly Checklist Web Application
+# Checklist Application
 
-A demo web application written mostly in Zig for managing checklists.
+A demo cross-platform application written mostly in Zig for managing checklists.
