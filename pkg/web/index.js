@@ -1,3 +1,8 @@
+import * as client from "./client.js";
+
+// DEBUG
+window.client = client;
+
 // since the script is included in the <head> element we need to wait for the
 // document content to load before we run or we won't be able to interact with
 // any elements
@@ -18,5 +23,5 @@ start(async () => {
 
     // https://stackoverflow.com/a/73659697
     // https://htmx.org/api/#process
-    htmx.process(document.body);
+    //htmx.process(document.body);
 });
