@@ -15,15 +15,15 @@ export class PackedSlice {
     if (typeof(this.#type) != 'string' || this.#type.length == 0) {
       throw new Error("type must be a non-empty string");
     }
-    
+
     if (typeof(this.#bits) != 'number' || !Number.isInteger(this.#bits)) {
       throw new Error("bits must be an integer");
     }
-    
+
     if (typeof(this.#value) != 'bigint') {
       throw new Error("value must be a bigint");
     }
-    
+
     if (!(this.#memory instanceof WebAssembly.Memory)) {
       throw new Error("memory must be an instance of WebAssembly.Memory");
     }
