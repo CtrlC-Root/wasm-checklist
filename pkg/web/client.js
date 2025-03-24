@@ -188,3 +188,9 @@ export class ClientLoader {
     }
   }
 }
+
+export default {
+  PackedSlice: PackedSlice,
+  Client: Client,
+  ClientLoader: ClientLoader,
+};
