@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const zts = @import("zts");
 
 // Client state.
 const Client = struct {
@@ -84,4 +85,26 @@ export fn allocBytes(size: usize) PackedByteSlice {
 export fn freeBytes(slice: PackedByteSlice) void {
     std.debug.assert(slice.ptr != 0 or slice.len != 0);
     client.allocator.free(slice.native());
+}
+
+// SAMPLE PAGE TEMPLATE TEST
+export fn sample_page() PackedByteSlice {
+    const template = @embedFile("templates/dashboard.html");
+
+    var buffer: std.ArrayListUnmanaged(u8) = .{};
+
+    const writer = buffer.writer(client.allocator);
+    const output = output: {
+        zts.writeHeader(template, writer) catch |err| break :output err;
+        zts.print(template, "checklist-list-start", .{}, writer) catch |err| break :output err;
+        zts.print(template, "checklist-list-end", .{}, writer) catch |err| break :output err;
+        zts.print(template, "footer", .{}, writer) catch |err| break :output err;
+
+        break :output buffer.toOwnedSlice(client.allocator);
+    } catch {
+        buffer.deinit(client.allocator);
+        return .empty;
+    };
+
+    return PackedByteSlice.init(output);
 }

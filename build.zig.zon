@@ -1,0 +1,20 @@
+// https://github.com/ziglang/zig/blob/master/doc/build.zig.zon.md
+.{
+    .name = .wasm_checklist,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.14.0",
+    .fingerprint = 0xb7974fe673dca2f7,
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "pkg/*",
+    },
+
+    .dependencies = .{
+        .zts = .{
+            .url = "https://github.com/zigster64/zts/archive/a58ea25255232ff04f63cfb25fd44a5494ef1a84.tar.gz",
+            .hash = "zts-0.14.1-AAAAABazAgAWx8_iVDidfnwfB9M4EtnVzUfqgdmw6qjU",
+        },
+    },
+}

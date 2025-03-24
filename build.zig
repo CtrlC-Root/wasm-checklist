@@ -39,12 +39,19 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(server_executable);
 
     // webassembly client executable
+    const client_zts_dependency = b.dependency("zts", .{
+        .target = wasm_target,
+        .optimize = optimize,
+    });
+    
     const client_executable = b.addExecutable(.{
         .name = "client",
         .root_source_file = b.path("pkg/client/main.zig"),
         .target = wasm_target,
         .optimize = optimize,
     });
+
+    client_executable.root_module.addImport("zts", client_zts_dependency.module("zts"));
 
     client_executable.entry = .disabled; // no default entry point
     client_executable.rdynamic = true; // expose exported functions
