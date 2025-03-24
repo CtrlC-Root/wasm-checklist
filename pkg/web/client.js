@@ -1,75 +1,16 @@
-export class WebAssemblyLoader {
-  #url;
-  #importObject;
-  #compileOptions;
-  #moduleResolve;
-  #moduleReject;
-  #instanceResolve;
-  #instanceReject;
-
-  constructor(url, importObject, compileOptions) {
-    this.#url = url; // URL()
-    this.#importObject = Object.assign({}, importObject); // Object()
-    this.#compileOptions = Object.assign({}, compileOptions); // Object()
-
-    if (!(this.#url instanceof URL)) {
-      throw new Error("url must be an instance of URL");
-    }
-
-    this.module = new Promise((resolve, reject) => {
-      this.#moduleResolve = resolve;
-      this.#moduleReject = reject;
-    });
-
-    this.instance = new Promise((resolve, reject) => {
-      this.#instanceResolve = resolve;
-      this.#instanceReject = reject;
-    });
-  }
-
-  get url() {
-    return this.#url;
-  }
-
-  get importObject() {
-    return this.#importObject;
-  }
-
-  get compileOptions() {
-    return this.#compileOptions;
-  }
-
-  async load() {
-    try {
-      const result = await WebAssembly.instantiateStreaming(
-        fetch(this.#url.toString()),
-        this.#importObject,
-        this.#compileOptions
-      );
-
-      this.#moduleResolve(result.module);
-      this.#instanceResolve(result.instance);
-      return result;
-    }
-    catch (error) {
-      this.#moduleReject(error);
-      this.#instanceResolve(error);
-      throw error;
-    }
-  }
-}
-
 export class PackedSlice {
   #type;
   #bits;
   #value;
   #memory;
+  #valid;
 
   constructor(type, bits, value, memory) {
     this.#type = type; // one of: uint, int, float
     this.#bits = bits; // one of: 8, 16, 32, 64
     this.#value = value; // packed slice representation
     this.#memory = memory; // WebAssembly exported memory
+    this.#valid = true;
 
     if (typeof(this.#type) != 'string' || this.#type.length == 0) {
       throw new Error("type must be a non-empty string");
@@ -106,6 +47,15 @@ export class PackedSlice {
     return Number(BigInt(this.#value) >> 32n);
   }
 
+  get valid() {
+    return this.#valid;
+  }
+
+  invalidate() {
+    console.assert(this.#valid, "slice is not valid");
+    this.#valid = false;
+  }
+
   get arrayType() {
     // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray
     // https://stackoverflow.com/a/21820040
@@ -136,26 +86,69 @@ export class PackedSlice {
   }
 
   get array() {
+    // prevent accessing invalid slice data (ex: after it has been freed)
+    if (!this.#valid) {
+      throw new Error("attempt to access invalid slice data");
+    }
+
     // retrieve the buffer on demand in case it's been replaced with a new instance
     return new this.arrayType(this.#memory.buffer, this.pointer, this.length);
   }
 }
 
 export class Client {
-  #sourceUrl;
-  #exportsResolve;
-  #exportsReject;
+  #instance;
 
-  constructor(sourceUrl) {
-    this.#sourceUrl = sourceUrl;
+  constructor(instance) {
+    this.#instance = instance;
+
+    if (!(this.#instance instanceof WebAssembly.Instance)) {
+      throw new Error("instance must be an instance of WebAssembly.Instance");
+    }
+
+    // initialize internal client state
+    this.#instance.exports.initialize();
+  }
+
+  allocateBytes(size) {
+    if (typeof(size) != 'number' || !Number.isInteger(size) || size <= 0) {
+      throw new Error("size must be a positive integer");
+    }
+
+    const exports = this.#instance.exports;
+    const value = exports.allocBytes(size);
+    return new PackedSlice('uint', 8, value, exports.memory);
+  }
+
+  freeBytes(slice) {
+    if (!(slice instanceof PackedSlice)) {
+      throw new Error("slice must be an instance of PackedSlice");
+    }
+
+    this.#instance.exports.freeBytes(slice.value);
+    slice.invalidate();
+  }
+}
+
+export class ClientLoader {
+  #sourceUrl;
+  #importObject;
+  #compileOptions;
+  #clientResolve;
+  #clientReject;
+
+  constructor(sourceUrl, importObject, compileOptions) {
+    this.#sourceUrl = sourceUrl; // URL()
+    this.#importObject = Object.assign({}, importObject); // Object()
+    this.#compileOptions = Object.assign({}, compileOptions); // Object()
+
     if (!(this.#sourceUrl instanceof URL)) {
       throw new Error("sourceUrl must be an instance of URL");
     }
 
-    this.loader = new WebAssemblyLoader(this.#sourceUrl);
-    this.exports = new Promise((resolve, reject) => {
-      this.#exportsResolve = resolve;
-      this.#exportsReject = reject;
+    this.client = new Promise((resolve, reject) => {
+      this.#clientResolve = resolve;
+      this.#clientReject = reject;
     });
   }
 
@@ -163,48 +156,30 @@ export class Client {
     return this.#sourceUrl;
   }
 
-  async initialize() {
+  get importObject() {
+    return this.#importObject;
+  }
+
+  get compileOptions() {
+    return this.#compileOptions;
+  }
+
+  async load() {
     try {
-      const result = await this.loader.load();
-      const exports = result.instance.exports;
+      const result = await WebAssembly.instantiateStreaming(
+        fetch(this.#sourceUrl.toString()),
+        this.#importObject,
+        this.#compileOptions
+      );
 
-      // initialize internal client state
-      exports.initialize();
+      const client = new Client(result.instance);
 
-      // XXX: hide double underscore prefixed methods
-      // XXX: wrap asynchronous methods
-
-      this.#exportsResolve(result.instance.exports);
-      return exports;
+      this.#clientResolve(client);
+      return client;
     }
     catch (error) {
-      this.#exportsReject(error);
+      this.#clientReject(error);
       throw error;
     }
-  }
-
-  async finalize() {
-    const exports = await this.exports;
-    exports.finalize();
-  }
-
-  async allocateBytes(size) {
-    if (typeof(size) != 'number' || !Number.isInteger(size) || size <= 0) {
-      throw new Error("size must be a positive integer");
-    }
-
-    const exports = await this.exports;
-    const value = exports.allocBytes(size);
-    return new PackedSlice('uint', 8, value, exports.memory);
-  }
-
-  async freeBytes(slice) {
-    if (!(slice instanceof PackedSlice)) {
-      throw new Error("slice must be an instance of PackedSlice");
-    }
-
-    const exports = await this.exports;
-    exports.freeBytes(slice.value);
-    // XXX: invalidate slice somehow to prevent use after free?
   }
 }

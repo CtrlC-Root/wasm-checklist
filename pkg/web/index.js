@@ -1,7 +1,8 @@
-import * as client from "./client.js";
-
 // DEBUG
-window.client = client;
+import * as client from "./client.js";
+window.PackedSlice = client.PackedSlice;
+window.Client = client.Client;
+window.ClientLoader = client.ClientLoader;
 
 // since the script is included in the <head> element we need to wait for the
 // document content to load before we run or we won't be able to interact with
