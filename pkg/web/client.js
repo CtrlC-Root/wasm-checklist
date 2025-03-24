@@ -28,7 +28,7 @@ export class PackedSlice {
       throw new Error("memory must be an instance of WebAssembly.Memory");
     }
 
-    console.assert(this.arrayType, "invalid combination of type and bits");
+    console.assert(this.arrayType != null, "invalid combination of type and bits");
     console.assert(this.pointer != 0, "packed slice has zero pointer: %d", this.#value);
     console.assert(this.length != 0, "packed slice has zero length: %d", this.#value);
   }
