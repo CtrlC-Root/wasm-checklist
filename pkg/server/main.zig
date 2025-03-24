@@ -72,10 +72,10 @@ fn processModelRequest(
 
                 // create an instance of the model
                 const instance_id = try model_store.create(model_allocator, &data_parsed.value);
-                std.debug.print("{s}: created instance: {d}\n", .{Model.name, instance_id});
+                std.debug.print("{s}: created instance: {d}\n", .{ Model.name, instance_id });
 
                 // inform the client of the new instance
-                const response = try std.fmt.allocPrint(request_allocator, "{d}", .{ instance_id });
+                const response = try std.fmt.allocPrint(request_allocator, "{d}", .{instance_id});
                 defer request_allocator.free(response);
 
                 try request.respond(response, .{
@@ -86,16 +86,16 @@ fn processModelRequest(
                 try request.respond("Method Not Allowed", .{
                     .status = std.http.Status.method_not_allowed,
                 });
-            }
+            },
         }
-    // instance request
+        // instance request
     } else {
         const instance_id = try std.fmt.parseInt(Model.Id, target_without_prefix, 10);
         switch (request.head.method) {
             // get instance
             .GET => {
                 if (model_store.retrieve(instance_id)) |data| {
-                    std.debug.print("{s}: retrieved instance: {d}\n", .{Model.name, instance_id});
+                    std.debug.print("{s}: retrieved instance: {d}\n", .{ Model.name, instance_id });
                     const response = try std.json.stringifyAlloc(request_allocator, data, .{});
                     defer request_allocator.free(response);
 
@@ -105,7 +105,7 @@ fn processModelRequest(
                         },
                     });
                 } else {
-                    std.debug.print("{s}: instance not found: {d}\n", .{Model.name, instance_id});
+                    std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
                     try request.respond("Not Found", .{
                         .status = std.http.Status.not_found,
                     });
@@ -133,12 +133,12 @@ fn processModelRequest(
                 // update the instance
                 const updated_instance_id = try model_store.update(model_allocator, instance_id, &data_parsed.value);
                 if (updated_instance_id) |_| {
-                    std.debug.print("{s}: instance updated: {d}\n", .{Model.name, instance_id});
+                    std.debug.print("{s}: instance updated: {d}\n", .{ Model.name, instance_id });
                     try request.respond("", .{
                         .status = std.http.Status.no_content,
                     });
                 } else {
-                    std.debug.print("{s}: instance not found: {d}\n", .{Model.name, instance_id});
+                    std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
                     try request.respond("Not Found", .{
                         .status = std.http.Status.not_found,
                     });
@@ -147,12 +147,12 @@ fn processModelRequest(
             // delete instance
             .DELETE => {
                 if (model_store.destroy(model_allocator, instance_id)) |_| {
-                    std.debug.print("{s}: destroyed instance: {d}\n", .{Model.name, instance_id});
+                    std.debug.print("{s}: destroyed instance: {d}\n", .{ Model.name, instance_id });
                     try request.respond("", .{
                         .status = std.http.Status.no_content,
                     });
                 } else {
-                    std.debug.print("{s}: instance not found: {d}\n", .{Model.name, instance_id});
+                    std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
                     try request.respond("Not Found", .{
                         .status = std.http.Status.not_found,
                     });
@@ -162,7 +162,7 @@ fn processModelRequest(
                 try request.respond("Method Not Allowed", .{
                     .status = std.http.Status.method_not_allowed,
                 });
-            }
+            },
         }
     }
 }
@@ -175,11 +175,9 @@ fn processRequest(
     // TODO: compile time generate code for each model? or processModelRequest() can raise error for not matching?
     if (std.mem.startsWith(u8, request.head.target, "/user/") or std.mem.eql(u8, request.head.target, "/user")) {
         try processModelRequest(models.User, allocator, data.allocator, &data.users, request);
-    }
-    else if (std.mem.startsWith(u8, request.head.target, "/checklist/") or std.mem.eql(u8, request.head.target, "/checklist")) {
+    } else if (std.mem.startsWith(u8, request.head.target, "/checklist/") or std.mem.eql(u8, request.head.target, "/checklist")) {
         try processModelRequest(models.Checklist, allocator, data.allocator, &data.checklists, request);
-    }
-    else {
+    } else {
         try request.respond("Not Found", .{
             .status = std.http.Status.not_found,
         });
