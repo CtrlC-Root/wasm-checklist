@@ -134,6 +134,7 @@ export class ClientLoader {
   #sourceUrl;
   #importObject;
   #compileOptions;
+  #client;
   #clientResolve;
   #clientReject;
 
@@ -146,7 +147,7 @@ export class ClientLoader {
       throw new Error("sourceUrl must be an instance of URL");
     }
 
-    this.client = new Promise((resolve, reject) => {
+    this.#client = new Promise((resolve, reject) => {
       this.#clientResolve = resolve;
       this.#clientReject = reject;
     });
@@ -162,6 +163,10 @@ export class ClientLoader {
 
   get compileOptions() {
     return this.#compileOptions;
+  }
+
+  get client() {
+    return this.#client;
   }
 
   async load() {
