@@ -64,7 +64,7 @@ export fn finalize() void {
 }
 
 // Allocate memory.
-export fn allocBytes(size: usize) PackedByteSlice {
+export fn allocateBytes(size: usize) PackedByteSlice {
     const data = client.allocator.alloc(u8, size) catch @panic("out of memory");
     return PackedByteSlice.init(data);
 }

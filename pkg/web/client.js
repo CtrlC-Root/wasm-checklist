@@ -234,7 +234,7 @@ export class Client {
     }
 
     const exports = this.#instance.exports;
-    return new PackedSlice(exports.memory, exports.allocBytes(size));
+    return new PackedSlice(exports.memory, exports.allocateBytes(size));
   }
 
   freeBytes(slice) {
