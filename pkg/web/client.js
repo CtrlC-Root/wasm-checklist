@@ -1,12 +1,12 @@
 export class TypedArraySpecification {
   #value;
-  #type;
+  #arrayType;
   #signed;
 
   constructor(value) {
     this.#value = value;
 
-    const [type, signed] = (function(value) {
+    const [arrayType, signed] = (function(value) {
       switch (value) {
         case 'uint8':   return [Uint8Array,     false];
         case 'uint16':  return [Uint16Array,    false];
@@ -25,12 +25,12 @@ export class TypedArraySpecification {
       }
     })(this.#value);
 
-    this.#type = type;
+    this.#arrayType = arrayType;
     this.#signed = signed;
   }
 
-  get type() {
-    return this.#type;
+  get arrayType() {
+    return this.#arrayType;
   }
 
   get signed() {
@@ -146,7 +146,7 @@ export class ClientArrayBuffer {
   }
 
   get array() {
-    const arrayType = this.#specification.type;
+    const arrayType = this.#specification.arrayType;
     if (this.#localBuffer != null) {
       console.assert(this.#remoteSlice == null);
       return new arrayType(this.#localBuffer);
