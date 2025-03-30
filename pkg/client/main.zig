@@ -2,9 +2,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-// third-party
-const zts = @import("zts");
-
 // first-party
 const memory = @import("memory.zig");
 const PackedByteSlice = memory.PackedByteSlice;
@@ -15,13 +12,6 @@ const http = @import("http.zig");
 test {
     std.testing.refAllDecls(@This());
 }
-
-// XXX: client error details
-const ClientError = struct {
-    const Self = @This();
-
-    id: []const u8,
-};
 
 // Client state.
 const Client = struct {
@@ -106,6 +96,13 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     };
 }
 
+// XXX: client error details
+const ClientError = struct {
+    const Self = @This();
+
+    id: []const u8,
+};
+
 // XXX: can we discover these from invokeInternal() function signature?
 const InvokeArguments = struct {
     traceId: u32, // XXX: note JS variable naming convention here
@@ -167,26 +164,4 @@ export fn invoke(data: PackedByteSlice) PackedByteSlice {
         ) catch @panic("failed to serialize ClientError value");
         return PackedByteSlice.init(client_error_bytes);
     };
-}
-
-// SAMPLE PAGE TEMPLATE TEST
-export fn sample_page() PackedByteSlice {
-    const template = @embedFile("templates/dashboard.html");
-
-    var buffer: std.ArrayListUnmanaged(u8) = .{};
-
-    const writer = buffer.writer(client.allocator);
-    const output = output: {
-        zts.writeHeader(template, writer) catch |err| break :output err;
-        zts.print(template, "checklist-list-start", .{}, writer) catch |err| break :output err;
-        zts.print(template, "checklist-list-end", .{}, writer) catch |err| break :output err;
-        zts.print(template, "footer", .{}, writer) catch |err| break :output err;
-
-        break :output buffer.toOwnedSlice(client.allocator);
-    } catch {
-        buffer.deinit(client.allocator);
-        return .empty;
-    };
-
-    return PackedByteSlice.init(output);
 }

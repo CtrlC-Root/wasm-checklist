@@ -2,15 +2,16 @@ const std = @import("std");
 
 // Packed slice representation.
 pub fn PackedSlice(comptime T: type) type {
-    const PackedInt = @Type(.{
+    const packed_int_type = @Type(.{
         .int = .{
             .bits = @typeInfo(usize).int.bits * 2,
             .signedness = @typeInfo(usize).int.signedness,
         },
     });
 
-    return packed struct(PackedInt) {
+    return packed struct(packed_int_type) {
         const Self = @This();
+        const PackedValue = packed_int_type;
 
         ptr: usize,
         len: usize,
