@@ -16,7 +16,7 @@ test {
     std.testing.refAllDecls(@This());
 }
 
-// XXX
+// XXX: client error details
 const ClientError = struct {
     const Self = @This();
 
@@ -75,7 +75,7 @@ export fn freeBytes(slice: PackedByteSlice) void {
     client.allocator.free(slice.native());
 }
 
-// XXX
+// XXX: internal invoke
 fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     // TODO
     _ = trace_id;
@@ -84,17 +84,19 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     return error.NotImplemented;
 }
 
-// XXX
+// XXX: can we discover these from invokeInternal() function signature?
 const InvokeArguments = struct {
     traceId: u32, // XXX: note JS variable naming convention here
     httpRequest: http.Request,
 };
 
+// XXX: can we discover these from invokeInternal() function signature?
 const InvokeResult = union(enum) {
     @"error": ClientError,
     httpResponse: http.Response,
 };
 
+// Public interface invoke wrapper.
 export fn invoke(data: PackedByteSlice) PackedByteSlice {
     return invoke: {
         // deserialize arguments
