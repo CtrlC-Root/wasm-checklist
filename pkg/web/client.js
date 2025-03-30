@@ -1,36 +1,78 @@
-export class PackedSlice {
-  #type;
-  #bits;
+export class TypedArraySpecification {
   #value;
+  #type;
+  #signed;
+  #bits;
+
+  constructor(value) {
+    this.#value = value;
+
+    const [type, signed, bits] = (function(value) {
+      switch (value) {
+        case 'uint8':   return [Uint8Array,     false, 8];
+        case 'uint16':  return [Uint16Array,    false, 16];
+        case 'uint32':  return [Uint32Array,    false, 32];
+        case 'uint64':  return [BigUint64Array, false, 64];
+    
+        case 'int8':    return [Int8Array,      true,  8];
+        case 'int16':   return [Int16Array,     true,  16];
+        case 'int32':   return [Int32Array,     true,  32];
+        case 'int64':   return [BigInt64Array,  true,  64];
+
+        case 'float32': return [Float32Array,   true,  32];
+        case 'float64': return [Float64Array,   true,  64];
+
+        default: throw new Error(`unsupported typed array specification: ${value}`);
+      }
+    })(this.#value);
+
+    this.#type = type;
+    this.#signed = signed;
+    this.#bits = bits;
+  }
+
+  get type() {
+    return this.#type;
+  }
+
+  get signed() {
+    return this.#signed;
+  }
+
+  get bits() {
+    return this.#bits;
+  }
+
+  get bytes() {
+    // XXX: assert this.#bits is a multiple of 8?
+    return (this.#bits / 8);
+  }
+}
+
+export class PackedSlice {
   #memory;
+  #value;
   #valid;
 
-  constructor(type, bits, value, memory) {
-    this.#type = type; // one of: uint, int, float
-    this.#bits = bits; // one of: 8, 16, 32, 64
+  constructor(memory, value) {
+    this.#memory = memory; // WebAssembly.Memory instance
     this.#value = value; // packed slice representation
-    this.#memory = memory; // WebAssembly exported memory
     this.#valid = true;
 
-    if (typeof(this.#type) != 'string' || this.#type.length == 0) {
-      throw new Error("type must be a non-empty string");
-    }
-
-    if (typeof(this.#bits) != 'number' || !Number.isInteger(this.#bits)) {
-      throw new Error("bits must be an integer");
+    if (!(this.#memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory must be WebAssembly.Memory() instance");
     }
 
     if (typeof(this.#value) != 'bigint') {
-      throw new Error("value must be a bigint");
+      throw new Error("value must be a BigInt");
     }
 
-    if (!(this.#memory instanceof WebAssembly.Memory)) {
-      throw new Error("memory must be an instance of WebAssembly.Memory");
-    }
-
-    console.assert(this.arrayType != null, "invalid combination of type and bits");
     console.assert(this.pointer != 0, "packed slice has zero pointer: %d", this.#value);
-    console.assert(this.length != 0, "packed slice has zero length: %d", this.#value);
+    console.assert(this.byteLength != 0, "packed slice has zero length: %d", this.#value);
+  }
+
+  get memory() {
+    return this.#memory;
   }
 
   get value() {
@@ -42,7 +84,7 @@ export class PackedSlice {
     return Number(BigInt(this.#value) & 0xffffffffn);
   }
 
-  get length() {
+  get byteLength() {
     // XXX: assumes wasm32 so usize would be 32 bits
     return Number(BigInt(this.#value) >> 32n);
   }
@@ -55,44 +97,126 @@ export class PackedSlice {
     console.assert(this.#valid, "slice is not valid");
     this.#valid = false;
   }
+}
 
-  get arrayType() {
-    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/TypedArray
-    // https://stackoverflow.com/a/21820040
-    switch (this.#type) {
-      case 'uint':
-      case 'int':
-        const signed = (this.#type === 'int');
-        switch (this.#bits) {
-          case 8:  return signed ? Int8Array     : Uint8Array;
-          case 16: return signed ? Int16Array    : Uint16Array;
-          case 32: return signed ? Int32Array    : Uint32Array;
-          case 64: return signed ? BigInt64Array : BigUint64Array;
-          default: throw new Error(`unsupported integer bit width: ${this.#bits}`);
-        }
+export class ClientArrayBuffer {
+  #specification; // TypedArraySpecification instance
+  #localBuffer;   // null or ArrayBuffer() instance
+  #remoteSlice;   // null or PackedSlice() instance
 
-      case 'float':
-        switch (this.#bits) {
-          case 32: return Float32Array;
-          case 64: return Float64Array;
-          default: throw new Error(`unsupported float bit width: ${this.#bits}`);
-        }
-
-      default: throw new Error(`unsupported type: ${this.#type}`);
+  constructor(specification, buffer_or_slice) {
+    this.#specification = specification;
+    if (!(this.#specification instanceof TypedArraySpecification)) {
+      throw new Error("specification must be a TypedArraySpecification instance");
     }
 
-    // should return or throw before we ever make it here
-    throw new Error("unreachable: logic error");
+    if (buffer_or_slice instanceof ArrayBuffer) {
+      this.#localBuffer = buffer_or_slice;
+      this.#remoteSlice = null;
+
+      // XXX: validate this.#localBuffer.byteLength is multiple of this.#specification.bytes
+      // TODO: invariants for resizable array buffers?
+    } else if (buffer_or_slice instanceof PackedSlice) {
+      this.#localBuffer = null;
+      this.#remoteSlice = buffer_or_slice;
+
+      // XXX: validate this.#remoteSlice.byteLength is multiple of this.#specification.bytes
+    } else {
+      throw new Error("buffer_or_slice must be an instance of ArrayBuffer or PackedSlice");
+    }
+  }
+
+  get specification() {
+    return this.#specification;
+  }
+
+  get isLocal() {
+    return this.#localBuffer != null;
+  }
+
+  get isRemote() {
+    return this.#remoteSlice != null;
+  }
+
+  get slice() {
+    if (!this.isRemote) {
+      throw new Error("buffer is not remote");
+    }
+
+    return this.#remoteSlice;
+  }
+
+  get byteLength() {
+    if (this.#localBuffer != null) {
+      console.assert(this.#remoteSlice == null);
+      return this.#localBuffer.byteLength;
+    } else {
+      console.assert(this.#localBuffer == null);
+      return this.#remoteSlice.byteLength;
+    }
   }
 
   get array() {
-    // prevent accessing invalid slice data (ex: after it has been freed)
-    if (!this.#valid) {
-      throw new Error("attempt to access invalid slice data");
+    const arrayType = this.#specification.type;
+    if (this.#localBuffer != null) {
+      console.assert(this.#remoteSlice == null);
+      return new arrayType(this.#localBuffer);
+    } else {
+      console.assert(this.#localBuffer == null);
+      return new arrayType(
+        this.#remoteSlice.memory.buffer,
+        this.#remoteSlice.pointer,
+        this.#remoteSlice.byteLength / arrayType.BYTES_PER_ELEMENT
+      );
+    }
+  }
+
+  exchangeWithLocal(buffer) {
+    if (!(buffer instanceof ArrayBuffer)) {
+      throw new Error("buffer must be an ArrayBuffer instance");
     }
 
-    // retrieve the buffer on demand in case it's been replaced with a new instance
-    return new this.arrayType(this.#memory.buffer, this.pointer, this.length);
+    if (this.isLocal) {
+      throw new Error("client array buffer is already local");
+    }
+
+    console.assert(this.isRemote);
+
+    if (this.byteLength != buffer.byteLength) {
+      throw new Error("client array buffer and local buffer have different byte lengths");
+    }
+
+    const sliceArray = this.array;
+    const slice = this.#remoteSlice;
+    this.#remoteSlice = null;
+    this.#localBuffer = buffer;
+    this.array.set(sliceArray);
+
+    return slice;
+  }
+
+  exchangeWithRemote(slice) {
+    if (!(slice instanceof PackedSlice)) {
+      throw new Error("slice must be a PackedSlice instance");
+    }
+
+    if (this.isRemote) {
+      throw new Error("client array buffer is already remote");
+    }
+
+    console.assert(this.isLocal);
+
+    if (this.byteLength != slice.byteLength) {
+      throw new Error("client array buffer and slice have different byte lengths");
+    }
+
+    const bufferArray = this.array;
+    const buffer = this.#localBuffer;
+    this.#localBuffer = null;
+    this.#remoteSlice = slice;
+    this.array.set(bufferArray);
+
+    return buffer;
   }
 }
 
@@ -121,8 +245,7 @@ export class Client {
     }
 
     const exports = this.#instance.exports;
-    const value = exports.allocBytes(size);
-    return new PackedSlice('uint', 8, value, exports.memory);
+    return new PackedSlice(exports.memory, exports.allocBytes(size));
   }
 
   freeBytes(slice) {
@@ -132,6 +255,46 @@ export class Client {
 
     this.#instance.exports.freeBytes(slice.value);
     slice.invalidate();
+  }
+
+  allocateArrayBuffer(specification, length) {
+    if (!(specification instanceof TypedArraySpecification)) {
+      throw new Error("specification must be a TypedArraySpecification instance");
+    }
+
+    const slice = this.allocateBytes(specification.bytes * length);
+    return new ClientArrayBuffer(specification, slice);
+  }
+
+  moveArrayBufferIn(clientArrayBuffer) {
+    if (!(clientArrayBuffer instanceof ClientArrayBuffer)) {
+      throw new Error("clientArrayBuffer must be a ClientArrayBuffer instance");
+    }
+
+    if (clientArrayBuffer.isLocal) {
+      const slice = this.allocateBytes(clientArrayBuffer.byteLength); // TODO: implement this
+      const arrayBuffer = clientArrayBuffer.exchangeWithRemote(slice);
+    } else {
+      console.assert(clientArrayBuffer.isRemote());
+      // XXX: handle moving buffer between different clients maybe?
+      throw new Error("clientArrayBuffer is already remote");
+    }
+  }
+
+  moveArrayBufferOut(clientArrayBuffer) {
+    if (!(clientArrayBuffer instanceof ClientArrayBuffer)) {
+      throw new Error("clientArrayBuffer must be a ClientArrayBuffer instance");
+    }
+
+    // XXX: confirm buffer slice points to this client's memory
+    if (clientArrayBuffer.isRemote) {
+      const arrayBuffer = new ArrayBuffer(clientArrayBuffer.byteLength);
+      const slice = clientArrayBuffer.exchangeWithLocal(arrayBuffer);
+      this.freeBytes(slice);
+    } else {
+      console.assert(clientArrayBuffer.isLocal());
+      throw new Error("clientArrayBuffer is already local");
+    }
   }
 }
 
@@ -195,7 +358,9 @@ export class ClientLoader {
 }
 
 export default {
+  TypedArraySpecification: TypedArraySpecification,
   PackedSlice: PackedSlice,
+  ClientArrayBuffer: ClientArrayBuffer,
   Client: Client,
   ClientLoader: ClientLoader,
 };
