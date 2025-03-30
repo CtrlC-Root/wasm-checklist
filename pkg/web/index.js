@@ -54,4 +54,34 @@ start(async () => {
     // https://stackoverflow.com/a/73659697
     // https://htmx.org/api/#process
     //htmx.process(document.body);
+
+    // DEBUG
+    var loader = new client.ClientLoader(new URL("client.wasm", window.location));
+    var testClient = await loader.load();
+    window.testClient = testClient;
+    
+    var input = {traceId: 123, httpRequest: {
+        url: (new URL("/version", window.location)).toString(),
+        method: "GET",
+        headers: [],
+        content: "",
+    }};
+
+    window.testInput = input;
+
+    var inputData = (new TextEncoder()).encode(JSON.stringify(input));
+    var inputSlice = testClient.allocateBytes(inputData.byteLength);
+    inputSlice.array.set(inputData);
+
+    const exports = testClient.instance.exports;
+    var outputSlice = new client.PackedSlice('uint', 8, exports.invoke(inputSlice.value), exports.memory);
+
+    var output = JSON.parse((new TextDecoder()).decode(outputSlice.array));
+    window.testOutput = output;
+
+    testClient.freeBytes(inputSlice);
+    testClient.freeBytes(outputSlice);
+
+    console.log("input:", input);
+    console.log("output:", output);
 });

@@ -77,11 +77,33 @@ export fn freeBytes(slice: PackedByteSlice) void {
 
 // XXX: internal invoke
 fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
-    // TODO
-    _ = trace_id;
-    _ = request;
+    var arena = std.heap.ArenaAllocator.init(client.allocator);
+    defer arena.deinit();
+    const request_allocator = arena.allocator();
 
-    return error.NotImplemented;
+    // XXX
+    const request_uri = try std.Uri.parse(request.url);
+    const request_path = try request_uri.path.toRawMaybeAlloc(request_allocator);
+
+    // XXX: for now
+    _ = trace_id;
+
+    // client version
+    if (std.mem.eql(u8, request_path, "/version")) {
+        return .{
+            .status = .ok,
+            .headers = &.{
+                .{ .name = "Content-Type", .value = "text/plain" },
+            },
+            .content = "TODO", // TODO: embed as part of the build
+        };
+    }
+
+    return .{
+        .status = .not_found,
+        .headers = &.{},
+        .content = "",
+    };
 }
 
 // XXX: can we discover these from invokeInternal() function signature?

@@ -110,6 +110,11 @@ export class Client {
     this.#instance.exports.initialize();
   }
 
+  // XXX: DEBUG only?
+  get instance() {
+    return this.#instance;
+  }
+
   allocateBytes(size) {
     if (typeof(size) != 'number' || !Number.isInteger(size) || size <= 0) {
       throw new Error("size must be a positive integer");
