@@ -58,8 +58,8 @@ start(async () => {
     // DEBUG
     var loader = new client.ClientLoader(new URL("client.wasm", window.location));
     var testClient = await loader.load();
-    window.testClient = testClient;
 
+    // input request
     var input = {traceId: 123, httpRequest: {
         url: (new URL("/version", window.location)).toString(),
         method: "GET",
@@ -67,23 +67,28 @@ start(async () => {
         content: "",
     }};
 
-    window.testInput = input;
-
+    // XXX: this should be encapsulated in a movable JSON object type?
     const byteArraySpec = new client.TypedArraySpecification('uint8'); // kinda verbose
-
     var inputData = (new TextEncoder()).encode(JSON.stringify(input));
     var inputBuffer = new client.ClientArrayBuffer(byteArraySpec, inputData.buffer.transfer());
     testClient.moveArrayBufferIn(inputBuffer); // allocates buffer memory inside client
 
+    // invoke the client
     const exports = testClient.instance.exports;
     var outputSlice = new client.PackedSlice(exports.memory, exports.invoke(inputBuffer.slice.value));
     var outputBuffer = new client.ClientArrayBuffer(byteArraySpec, outputSlice); // uses existing memory inside client
 
+    // XXX: this should be encapsulated in a movable JSON object type?
     var output = JSON.parse((new TextDecoder()).decode(outputBuffer.array));
-    window.testOutput = output;
 
+    // free request and response memory in the client
     testClient.moveArrayBufferOut(inputBuffer);  // deallocates buffer memory inside client
     testClient.moveArrayBufferOut(outputBuffer); // deallocates buffer memory inside client
+
+    // DEBUG
+    window.testClient = testClient;
+    window.testInput = input;
+    window.testOutput = output;
 
     console.log("input:", input);
     console.log("output:", output);
