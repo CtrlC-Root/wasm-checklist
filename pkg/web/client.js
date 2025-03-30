@@ -2,25 +2,24 @@ export class TypedArraySpecification {
   #value;
   #type;
   #signed;
-  #bits;
 
   constructor(value) {
     this.#value = value;
 
-    const [type, signed, bits] = (function(value) {
+    const [type, signed] = (function(value) {
       switch (value) {
-        case 'uint8':   return [Uint8Array,     false, 8];
-        case 'uint16':  return [Uint16Array,    false, 16];
-        case 'uint32':  return [Uint32Array,    false, 32];
-        case 'uint64':  return [BigUint64Array, false, 64];
+        case 'uint8':   return [Uint8Array,     false];
+        case 'uint16':  return [Uint16Array,    false];
+        case 'uint32':  return [Uint32Array,    false];
+        case 'uint64':  return [BigUint64Array, false];
     
-        case 'int8':    return [Int8Array,      true,  8];
-        case 'int16':   return [Int16Array,     true,  16];
-        case 'int32':   return [Int32Array,     true,  32];
-        case 'int64':   return [BigInt64Array,  true,  64];
+        case 'int8':    return [Int8Array,      true];
+        case 'int16':   return [Int16Array,     true];
+        case 'int32':   return [Int32Array,     true];
+        case 'int64':   return [BigInt64Array,  true];
 
-        case 'float32': return [Float32Array,   true,  32];
-        case 'float64': return [Float64Array,   true,  64];
+        case 'float32': return [Float32Array,   true];
+        case 'float64': return [Float64Array,   true];
 
         default: throw new Error(`unsupported typed array specification: ${value}`);
       }
@@ -28,7 +27,6 @@ export class TypedArraySpecification {
 
     this.#type = type;
     this.#signed = signed;
-    this.#bits = bits;
   }
 
   get type() {
@@ -38,25 +36,16 @@ export class TypedArraySpecification {
   get signed() {
     return this.#signed;
   }
-
-  get bits() {
-    return this.#bits;
-  }
-
-  get bytes() {
-    // XXX: assert this.#bits is a multiple of 8?
-    return (this.#bits / 8);
-  }
 }
 
 export class PackedSlice {
-  #memory;
-  #value;
-  #valid;
+  #memory; // WebAssembly.Memory instance
+  #value;  // BigInt representing a client PackedSlice value
+  #valid;  // true if pointer into memory is valid
 
   constructor(memory, value) {
-    this.#memory = memory; // WebAssembly.Memory instance
-    this.#value = value; // packed slice representation
+    this.#memory = memory;
+    this.#value = value;
     this.#valid = true;
 
     if (!(this.#memory instanceof WebAssembly.Memory)) {
