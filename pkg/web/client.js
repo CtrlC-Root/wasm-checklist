@@ -261,7 +261,7 @@ export class Client {
     }
 
     if (clientArrayBuffer.isLocal) {
-      const slice = this.allocateBytes(clientArrayBuffer.byteLength); // TODO: implement this
+      const slice = this.allocateBytes(clientArrayBuffer.byteLength);
       const arrayBuffer = clientArrayBuffer.exchangeWithRemote(slice);
     } else {
       console.assert(clientArrayBuffer.isRemote());
