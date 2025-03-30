@@ -71,29 +71,33 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     defer arena.deinit();
     const request_allocator = arena.allocator();
 
-    // XXX
+    // create a response builder
+    var response_builder: http.ResponseBuilder = undefined;
+    response_builder.init(request_allocator);
+
+    // XXX: set response trace id header
+    // TODO: retrieve the trace id from the incoming request instead
+    const trace_id_value = try std.fmt.allocPrint(request_allocator, "{d}", .{ trace_id });
+    defer request_allocator.free(trace_id_value);
+
+    try response_builder.setHeader("X-Trace-Id", trace_id_value);
+
+    // parse the request uri and resolve the raw request path
     const request_uri = try std.Uri.parse(request.url);
     const request_path = try request_uri.path.toRawMaybeAlloc(request_allocator);
 
-    // XXX: for now
-    _ = trace_id;
-
     // client version
     if (std.mem.eql(u8, request_path, "/version")) {
-        return .{
-            .status = .ok,
-            .headers = &.{
-                .{ .name = "Content-Type", .value = "text/plain" },
-            },
-            .content = "TODO", // TODO: embed as part of the build
-        };
+        response_builder.setStatus(.ok);
+        try response_builder.setHeader("Content-Type", "text/plain");
+        try response_builder.setContent("TODO: fill in version");
+
+        return try response_builder.toOwned(client.allocator);
     }
 
-    return .{
-        .status = .not_found,
-        .headers = &.{},
-        .content = "",
-    };
+    // generic fallthrough for unknown routes
+    response_builder.setStatus(.not_found);
+    return try response_builder.toOwned(client.allocator);
 }
 
 // XXX: client error details
@@ -132,7 +136,7 @@ export fn invoke(data: PackedByteSlice) PackedByteSlice {
             arguments_parsed.value.traceId,
             arguments_parsed.value.httpRequest,
         ) catch |err| break :invoke err;
-        // TODO: defer response.deinit(client.allocator);
+        defer response.deinit(client.allocator);
 
         // serialize http response
         const response_bytes = std.json.stringifyAlloc(
