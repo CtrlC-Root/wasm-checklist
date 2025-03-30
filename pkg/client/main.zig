@@ -1,45 +1,20 @@
+// zig
 const builtin = @import("builtin");
 const std = @import("std");
+
+// third-party
 const zts = @import("zts");
+
+// first-party
+const memory = @import("memory.zig");
+const PackedByteSlice = memory.PackedByteSlice;
 
 const http = @import("http.zig");
 
+// testing related import processing
 test {
     std.testing.refAllDecls(@This());
 }
-
-// Packed slice representation.
-fn PackedSlice(comptime T: type) type {
-    const PackedInt = @Type(.{
-        .int = .{
-            .bits = @typeInfo(usize).int.bits * 2,
-            .signedness = @typeInfo(usize).int.signedness,
-        },
-    });
-
-    return packed struct(PackedInt) {
-        const Self = @This();
-
-        ptr: usize,
-        len: usize,
-
-        const empty: Self = .{ .ptr = 0, .len = 0 };
-
-        fn init(data: []const T) Self {
-            return .{
-                .ptr = @intFromPtr(data.ptr),
-                .len = data.len,
-            };
-        }
-
-        fn native(self: Self) []const T {
-            return @as([*]T, @ptrFromInt(self.ptr))[0..self.len];
-        }
-    };
-}
-
-// Packed byte slice.
-const PackedByteSlice = PackedSlice(u8);
 
 // XXX
 const ClientError = struct {
