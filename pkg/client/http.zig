@@ -224,6 +224,14 @@ pub const Response = struct {
     headers: []const std.http.Header, // https://ziglang.org/documentation/0.14.0/std/#std.http.Header
     content: []const u8,
 
+    pub fn jsonStringify(self: Self, out: anytype) !void {
+        return out.write(.{
+            .status = @intFromEnum(self.status),
+            .headers = self.headers,
+            .content = self.content,
+        });
+    }
+
     pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
         for (self.headers) |header| {
             allocator.free(header.name);
@@ -246,7 +254,7 @@ test "http response json serialization" {
 
     const sample_response_json =
         \\{
-        \\  "status": "ok",
+        \\  "status": 200,
         \\  "headers": [
         \\    {
         \\      "name": "Content-Type",

@@ -29,7 +29,7 @@ const requestToObject = async function (request) {
 // https://developer.mozilla.org/en-US/docs/Web/API/Response
 const responseFromObject = async function (data) {
   return new Response(data.content, {
-    status: 200, // data.status,
+    status: data.status,
     headers: Object.fromEntries(data.headers.map((header) => {
       return [header.name, header.value];
     })),
