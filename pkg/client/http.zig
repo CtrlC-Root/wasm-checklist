@@ -131,14 +131,17 @@ pub const RequestBuilder = struct {
     pub fn toOwned(self: *Self, allocator: std.mem.Allocator) !Request {
         var request: Request = undefined;
         request.method = self.method;
-        
+
+        // clone url
         request.url = try allocator.dupe(u8, self.url);
         errdefer allocator.free(request.url);
 
+        // clone content
         request.content = try allocator.dupe(u8, self.content);
         errdefer allocator.free(request.content);
 
-        var headers = std.ArrayList(std.http.Header).init(self.allocator);
+        // clone headers
+        var headers = std.ArrayList(std.http.Header).init(allocator);
         errdefer {
             for (headers.items) |header| {
                 allocator.free(header.name);
@@ -161,6 +164,8 @@ pub const RequestBuilder = struct {
             try headers.append(header);
         }
 
+        // note: toOwnedSlice() will allocate the memory it returns with the
+        // same allocator passed into std.ArrayList().init()
         request.headers = try headers.toOwnedSlice();
 
         self.deinit();
