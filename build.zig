@@ -1,6 +1,45 @@
 const std = @import("std");
 
+// XXX: once the PR below is merged and included in a stable release we should
+// be able to pull in build.zig.zon and use the package version defined there
+// https://github.com/ziglang/zig/pull/22907
+// const build_data = @import("build.zig.zon");
+
+pub fn fossilVersion(allocator: std.mem.Allocator) ![]const u8 {
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{"fossil", "describe", "--dirty"},
+        // .cwd = "TODO",
+        // .cwd_dir = ???,
+    });
+
+    defer allocator.free(result.stderr);
+    errdefer allocator.free(result.stdout);
+
+    switch (result.term) {
+        .Exited => |status| std.debug.assert(status == 0),
+        .Signal, .Stopped, .Unknown => return error.FossilBroke, // XXX: improve this
+    }
+
+    return result.stdout;
+}
+
 pub fn build(b: *std.Build) void {
+    // shared build options
+    const build_options = b.addOptions();
+
+    const package_version = std.SemanticVersion.parse("0.1.0") catch unreachable; // XXX: see above for build_data note
+    build_options.addOption(std.SemanticVersion, "package_version", package_version);
+
+    // const fossil_describe_command = b.addSystemCommand(&.{"fossil", "describe", "--dirty"});
+    // const fossil_describe_output = fossil_describe_command.captureStdOut();
+
+    const fossil_version = fossilVersion(b.allocator) catch unreachable; // XXX: handle this
+    build_options.addOption([]const u8, "fossil_version", fossil_version);
+
+    const build_version = std.fmt.allocPrint(b.allocator, "{}-{s}", .{ package_version, fossil_version }) catch unreachable;
+    build_options.addOption([]const u8, "version", build_version);
+
     // optimization
     const optimize = b.standardOptimizeOption(.{});
 
@@ -36,6 +75,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    server_executable.root_module.addOptions("build", build_options);
     b.installArtifact(server_executable);
 
     // webassembly client executable
@@ -52,6 +92,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    client_executable.root_module.addOptions("build", build_options);
     client_executable.root_module.addImport("zts", client_zts_dependency.module("zts"));
 
     client_executable.entry = .disabled; // no default entry point
@@ -65,6 +106,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    client_unit_tests.root_module.addOptions("build", build_options);
     client_unit_tests.root_module.addImport("zts", client_zts_dependency.module("zts"));
 
     const run_client_unit_tests = b.addRunArtifact(client_unit_tests);

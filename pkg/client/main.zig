@@ -3,10 +3,11 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 // first-party
+const build = @import("build");
 const memory = @import("memory.zig");
-const PackedByteSlice = memory.PackedByteSlice;
-
 const http = @import("http.zig");
+
+const PackedByteSlice = memory.PackedByteSlice;
 
 // testing related import processing
 test {
@@ -74,12 +75,12 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     // create a response builder
     var response_builder: http.ResponseBuilder = undefined;
     response_builder.init(request_allocator);
+    // defer response_builder.deinit();
 
     // XXX: set response trace id header
     // TODO: retrieve the trace id from the incoming request instead
     const trace_id_value = try std.fmt.allocPrint(request_allocator, "{d}", .{ trace_id });
-    defer request_allocator.free(trace_id_value);
-
+    // defer request_allocator.free(trace_id_value);
     try response_builder.setHeader("X-Trace-Id", trace_id_value);
 
     // parse the request uri and resolve the raw request path
@@ -90,7 +91,7 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     if (std.mem.eql(u8, request_path, "/app/version")) {
         response_builder.setStatus(.ok);
         try response_builder.setHeader("Content-Type", "text/plain");
-        try response_builder.setContent("TODO: fill in version");
+        try response_builder.setContent(build.version);
 
         return try response_builder.toOwned(client.allocator);
     }

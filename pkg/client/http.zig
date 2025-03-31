@@ -343,10 +343,12 @@ pub const ResponseBuilder = struct {
         var response: Response = undefined;
         response.status = self.status;
 
+        // duplicate content
         response.content = try allocator.dupe(u8, self.content);
         errdefer allocator.free(response.content);
 
-        var headers = std.ArrayList(std.http.Header).init(self.allocator);
+        // duplicate headers
+        var headers = std.ArrayList(std.http.Header).init(allocator);
         errdefer {
             for (headers.items) |header| {
                 allocator.free(header.name);
@@ -369,6 +371,8 @@ pub const ResponseBuilder = struct {
             try headers.append(header);
         }
 
+        // note: toOwnedSlice() will allocate the memory it returns with the
+        // same allocator passed into std.ArrayList().init()
         response.headers = try headers.toOwnedSlice();
 
         self.deinit();
@@ -401,6 +405,9 @@ test "http response builder" {
     try builder.setHeader("User-Agent", "Zig Test Runner");
     try builder.setHeader("X-Trace-Id", "trace_this");
 
+    // content
+    try builder.setContent("Hello, world!");
+
     // consume the builder to an owned instance
     const response = try builder.toOwned(std.testing.allocator);
     defer response.deinit(std.testing.allocator);
@@ -414,4 +421,7 @@ test "http response builder" {
     try std.testing.expectEqualSlices(u8, response.headers[0].value, "Zig Test Runner");
     try std.testing.expectEqualSlices(u8, response.headers[1].name, "X-Trace-Id");
     try std.testing.expectEqualSlices(u8, response.headers[1].value, "trace_this");
+
+    // validate content
+    try std.testing.expectEqualSlices(u8, response.content, "Hello, world!");
 }
