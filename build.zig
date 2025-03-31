@@ -14,14 +14,14 @@ pub fn fossilVersion(allocator: std.mem.Allocator) ![]const u8 {
     });
 
     defer allocator.free(result.stderr);
-    errdefer allocator.free(result.stdout);
+    defer allocator.free(result.stdout);
 
     switch (result.term) {
         .Exited => |status| std.debug.assert(status == 0),
         .Signal, .Stopped, .Unknown => return error.FossilBroke, // XXX: improve this
     }
 
-    return result.stdout;
+    return try allocator.dupe(u8, std.mem.trim(u8, result.stdout, &std.ascii.whitespace));
 }
 
 pub fn build(b: *std.Build) void {
