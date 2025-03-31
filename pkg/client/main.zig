@@ -87,7 +87,7 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     const request_path = try request_uri.path.toRawMaybeAlloc(request_allocator);
 
     // client version
-    if (std.mem.eql(u8, request_path, "/version")) {
+    if (std.mem.eql(u8, request_path, "/app/version")) {
         response_builder.setStatus(.ok);
         try response_builder.setHeader("Content-Type", "text/plain");
         try response_builder.setContent("TODO: fill in version");
