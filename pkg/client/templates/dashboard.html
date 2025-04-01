@@ -1,3 +1,22 @@
+<!-- content -->
+<div id="app">
+  .checklist-list-start
+  <h1>Checklists</h1>
+  <ul>
+    .checklist-list-item
+    <li>{[title]:s} <button>Delete</button></li>
+  .checklist-list-end
+  </ul>
+
+  .checklist-form-start
+  <form>
+    <label for="title">Title:</label>
+    <input type="text" id="title" name="title">
+    <button type="submit">Create</button>
+  </form>
+.footer
+</div>
+
 <script type="text/javascript">
 (async () => {
   // create the script element dynamically so we can add event listeners to it
@@ -27,22 +46,3 @@
   htmx.process(document.body);
 })();
 </script>
-
-<!-- content -->
-<div id="app">
-  .checklist-list-start
-  <h1>Checklists</h1>
-  <ul>
-    .checklist-list-item
-    <li>{[title]:s} <button>Delete</button></li>
-  .checklist-list-end
-  </ul>
-
-  .checklist-form-start
-  <form>
-    <label for="title">Title:</label>
-    <input type="text" id="title" name="title">
-    <button type="submit">Create</button>
-  </form>
-.footer
-</div>
