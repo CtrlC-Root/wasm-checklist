@@ -48,6 +48,7 @@ fn processModelRequest(
                 try request.respond(response, .{
                     .extra_headers = &.{
                         .{ .name = "Content-Type", .value = "application/json" },
+                        .{ .name = "Access-Control-Allow-Origin", .value = "*" },
                     },
                 });
             },

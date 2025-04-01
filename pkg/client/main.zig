@@ -107,10 +107,10 @@ fn viewDashboard(
     }
 
     const checklists_task = switch (checklists_task_entry.value_ptr.*) {
-        .http => |http_task| http_task,
+        .http => |*http_task| http_task,
     };
 
-    const checklists_response = switch (checklists_task.result) {
+    const checklists_response = switch (checklists_task.*.result) {
         .none => {
             return error.WouldBlock;
         },
@@ -288,6 +288,116 @@ export fn invoke(data: PackedByteSlice) PackedByteSlice {
         const client_error_bytes = std.json.stringifyAlloc(
             client.allocator,
             InvokeResult{ .@"error" = client_error },
+            .{},
+        ) catch @panic("failed to serialize ClientError value");
+        return PackedByteSlice.init(client_error_bytes);
+    };
+}
+
+// XXX
+const GetTaskResult = union(enum) {
+    data: task.TaskMultiHashMap.Value,
+    @"error": ClientError,
+};
+
+// XXX
+export fn getTask(request_id: u32, task_id: u32) PackedByteSlice {
+    return get: {
+        const task_entry = client.tasks.getEntry(request_id, task_id) orelse {
+            break :get error.InvalidTaskId;
+        };
+
+        // serialize result
+        const result_bytes = std.json.stringifyAlloc(
+            client.allocator,
+            GetTaskResult{ .data = task_entry.value_ptr.* },
+            .{},
+        ) catch |err| break :get err;
+        errdefer client.allocator.free(result_bytes);
+
+        // return result data
+        break :get PackedByteSlice.init(result_bytes);
+    } catch |err| {
+        // TODO: handle out of memory before we try and allocate more memory
+
+        // XXX: there is probably a better way to identify the error
+        // const err_type = @TypeOf(err);
+        // const err_type_info = @typeInfo(err_type);
+        // @compileLog(@typeInfo(@TypeOf(specific_error)));
+        // @compileLog(@typeName(@TypeOf(err)));
+        const client_error: ClientError = .{
+            .id = @errorName(err),
+        };
+
+        // serialize client error
+        const client_error_bytes = std.json.stringifyAlloc(
+            client.allocator,
+            GetTaskResult{ .@"error" = client_error },
+            .{},
+        ) catch @panic("failed to serialize ClientError value");
+        return PackedByteSlice.init(client_error_bytes);
+    };
+}
+
+// XXX
+const CompleteTaskResult = union(enum) {
+    ok,
+    @"error": ClientError,
+};
+
+// XXX
+export fn completeTask(request_id: u32, task_id: u32, data: PackedByteSlice) PackedByteSlice {
+    return complete: {
+        const task_entry = client.tasks.getEntry(request_id, task_id) orelse {
+            break :complete error.InvalidTaskId;
+        };
+
+        switch (task_entry.value_ptr.*) {
+            .http => |*http_task| {
+                if (http_task.result != .none) {
+                    break :complete error.TaskAlreadyComplete;
+                }
+
+                // deserialize arguments
+                const result_parsed = std.json.parseFromSlice(
+                    task.HttpTask.Result,
+                    client.allocator,
+                    data.native(),
+                    .{},
+                ) catch |err| break :complete err;
+                defer result_parsed.deinit();
+
+                // update the task
+                http_task.result = result_parsed.value;
+            },
+        }
+
+        // serialize result
+        const result_bytes = std.json.stringifyAlloc(
+            client.allocator,
+            CompleteTaskResult.ok,
+            .{},
+        ) catch |err| break :complete err;
+        errdefer client.allocator.free(result_bytes);
+
+        // return result data
+        break :complete PackedByteSlice.init(result_bytes);
+    } catch |err| {
+        // TODO: handle out of memory before we try and allocate more memory
+
+        // XXX: there is probably a better way to identify the error
+        // const err_type = @TypeOf(err);
+        // const err_type_info = @typeInfo(err_type);
+        // @compileLog(@typeInfo(@TypeOf(specific_error)));
+        // @compileLog(@typeName(@TypeOf(err)));
+        const client_error: ClientError = .{
+            .id = @errorName(err),
+        };
+
+        // serialize client error
+        const client_error_bytes = std.json.stringifyAlloc(
+            client.allocator,
+            CompleteTaskResult{ .@"error" = client_error },
             .{},
         ) catch @panic("failed to serialize ClientError value");
         return PackedByteSlice.init(client_error_bytes);

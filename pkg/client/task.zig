@@ -12,11 +12,11 @@ pub fn Task(
 ) type {
     return struct {
         const Self = @This();
-        const Request = OuterRequest;
-        const Response = OuterResponse;
-        const Error = OuterError;
+        pub const Request = OuterRequest;
+        pub const Response = OuterResponse;
+        pub const Error = OuterError;
 
-        const Result = union(enum) {
+        pub const Result = union(enum) {
             none,
             @"error": Self.Error,
             response: Self.Response,
@@ -28,7 +28,7 @@ pub fn Task(
 }
 
 // XXX
-pub const HttpTask = Task(http.Request, http.Response, error{offline});
+pub const HttpTask = Task(http.Request, http.Response, union(enum) { connect_failed, timeout });
 
 test "http task" {
     var request_builder: http.RequestBuilder = undefined;
@@ -95,5 +95,13 @@ pub const TaskMultiHashMap = struct {
         task_id: Self.TaskId,
     ) !Self.HashMap.GetOrPutResult {
         return try self.tasks.getOrPut(allocator, Self.packKey(request_id, task_id));
+    }
+
+    pub fn getEntry(
+        self: Self,
+        request_id: Self.RequestId,
+        task_id: Self.TaskId,
+    ) ?Self.HashMap.Entry {
+        return self.tasks.getEntry(Self.packKey(request_id, task_id));
     }
 };
