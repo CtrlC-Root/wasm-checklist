@@ -1,3 +1,34 @@
+<script type="text/javascript">
+(async () => {
+  // create the script element dynamically so we can add event listeners to it
+  // before the browser starts loading it and ensure we respond to the events
+  const loadHtmxScript = new Promise((resolve, reject) => {
+    const element = document.createElement('script');
+
+    // https://htmx.org/docs/#installing
+    element.setAttribute('src', 'https://unpkg.com/htmx.org@2.0.4');
+    element.setAttribute('integrity', 'sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+');
+    element.setAttribute('crossorigin', 'anonymous');
+
+    // resolve or reject the promise
+    element.addEventListener('load', resolve);
+    element.addEventListener('error', reject);
+
+    // script starts loading after it's added to the document here
+    document.body.append(element);
+  });
+
+  // wait for the script to finish loading
+  await loadHtmxScript;
+
+  // https://stackoverflow.com/a/73659697
+  // https://htmx.org/api/#process
+  console.debug("trigger HTMX to process loaded body content");
+  htmx.process(document.body);
+})();
+</script>
+
+<!-- content -->
 <div id="app">
   .checklist-list-start
   <h1>Checklists</h1>

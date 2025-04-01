@@ -6,8 +6,12 @@ const std = @import("std");
 const build = @import("build");
 const memory = @import("memory.zig");
 const http = @import("http.zig");
+const task = @import("task.zig");
 
 const PackedByteSlice = memory.PackedByteSlice;
+
+// third-party
+const zts = @import("zts");
 
 // testing related import processing
 test {
@@ -19,6 +23,7 @@ const Client = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator = undefined,
+    tasks: task.TaskMultiHashMap = undefined,
 };
 
 // Global client state singleton.
@@ -46,6 +51,7 @@ export fn initialize() void {
 
     client = .{
         .allocator = allocator,
+        .tasks = .{},
     };
 }
 
@@ -66,8 +72,35 @@ export fn freeBytes(slice: PackedByteSlice) void {
     client.allocator.free(slice.native());
 }
 
+// XXX
+fn viewDashboard(trace_id: u32, request: *const http.Request, response_builder: *http.ResponseBuilder) !void {
+    // TODO: retrieve the authentication token
+    // TODO: retrieve the checklists
+    // TODO: create a response
+
+    _ = trace_id;
+    _ = request;
+
+    // XXX
+    const template = @embedFile("templates/dashboard.html");
+    var buffer: std.ArrayListUnmanaged(u8) = .{};
+    errdefer buffer.deinit(client.allocator);
+
+    const writer = buffer.writer(client.allocator);
+    try zts.writeHeader(template, writer);
+    try zts.print(template, "checklist-list-start", .{}, writer);
+    try zts.print(template, "checklist-list-end", .{}, writer);
+    try zts.print(template, "footer", .{}, writer);
+    const output = try buffer.toOwnedSlice(client.allocator);
+    defer client.allocator.free(output);
+
+    // XXX
+    try response_builder.setHeader("Content-Type", "text/html");
+    try response_builder.setContent(std.mem.trim(u8, output, &std.ascii.whitespace));
+}
+
 // XXX: internal invoke
-fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
+fn invokeInternal(trace_id: u32, request: *const http.Request) !http.Response {
     var arena = std.heap.ArenaAllocator.init(client.allocator);
     defer arena.deinit();
     const request_allocator = arena.allocator();
@@ -77,11 +110,8 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
     response_builder.init(request_allocator);
     // defer response_builder.deinit();
 
-    // XXX: set response trace id header
-    // TODO: retrieve the trace id from the incoming request instead
-    const trace_id_value = try std.fmt.allocPrint(request_allocator, "{d}", .{ trace_id });
-    // defer request_allocator.free(trace_id_value);
-    try response_builder.setHeader("X-Trace-Id", trace_id_value);
+    // default response status
+    response_builder.setStatus(.ok);
 
     // parse the request uri and resolve the raw request path
     const request_uri = try std.Uri.parse(request.url);
@@ -89,10 +119,15 @@ fn invokeInternal(trace_id: u32, request: http.Request) !http.Response {
 
     // client version
     if (std.mem.eql(u8, request_path, "/app/version")) {
-        response_builder.setStatus(.ok);
         try response_builder.setHeader("Content-Type", "text/plain");
         try response_builder.setContent(build.version);
 
+        return try response_builder.toOwned(client.allocator);
+    }
+
+    // dashboard
+    if (std.mem.eql(u8, request_path, "/app")) {
+        try viewDashboard(trace_id, request, &response_builder);
         return try response_builder.toOwned(client.allocator);
     }
 
@@ -135,7 +170,7 @@ export fn invoke(data: PackedByteSlice) PackedByteSlice {
         // process request into response
         const response: http.Response = invokeInternal(
             arguments_parsed.value.traceId,
-            arguments_parsed.value.httpRequest,
+            &arguments_parsed.value.httpRequest,
         ) catch |err| break :invoke err;
         defer response.deinit(client.allocator);
 

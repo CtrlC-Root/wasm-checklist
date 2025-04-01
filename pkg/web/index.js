@@ -56,9 +56,20 @@ start(async () => {
         return;
     }
 
-    // TODO: initial application load
+    const appVersion = await versionResponse.text();
+    console.log(`application version: ${appVersion}`);
 
-    // https://stackoverflow.com/a/73659697
-    // https://htmx.org/api/#process
-    //htmx.process(document.body);
+    // manually load the initial application view
+    const appResponse = await fetch("/app");
+    if (!appResponse.ok) {
+        console.error("failed to load the application:", appResponse);
+        return;
+    }
+
+    // parse the application HTML and add it to the document in a way that will
+    // execute <script> tags in order to dynamically load required resources
+    // https://developer.mozilla.org/en-US/docs/Web/API/Range/createContextualFragment
+    const appHtml = await appResponse.text();
+    const documentRange = document.createRange();
+    document.body.appendChild(documentRange.createContextualFragment(appHtml));
 });
