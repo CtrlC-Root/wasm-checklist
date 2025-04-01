@@ -73,7 +73,12 @@ export fn freeBytes(slice: PackedByteSlice) void {
 }
 
 // XXX
-fn viewDashboard(request_id: u32, request: *const http.Request, response_builder: *http.ResponseBuilder) !void {
+fn viewDashboard(
+    request_allocator: std.mem.Allocator,
+    request_id: u32,
+    request: *const http.Request,
+    response_builder: *http.ResponseBuilder,
+) !void {
     // TODO: retrieve the authentication token
     // TODO: retrieve the checklists
     // TODO: create a response
@@ -85,16 +90,16 @@ fn viewDashboard(request_id: u32, request: *const http.Request, response_builder
     const template = @embedFile("templates/dashboard.html");
 
     var buffer: std.ArrayListUnmanaged(u8) = .{};
-    errdefer buffer.deinit(client.allocator);
-    const writer = buffer.writer(client.allocator);
+    errdefer buffer.deinit(request_allocator);
+    const writer = buffer.writer(request_allocator);
 
     try zts.writeHeader(template, writer); // XXX: only on full page load
     try zts.print(template, "checklist-list-start", .{}, writer);
     try zts.print(template, "checklist-list-end", .{}, writer);
     try zts.print(template, "footer", .{}, writer); // XXX: only on full page load
 
-    const output = try buffer.toOwnedSlice(client.allocator);
-    defer client.allocator.free(output);
+    const output = try buffer.toOwnedSlice(request_allocator);
+    defer request_allocator.free(output);
 
     // XXX
     try response_builder.setHeader("Content-Type", "text/html");
@@ -129,7 +134,7 @@ fn invokeInternal(request_id: u32, request: *const http.Request) !http.Response 
 
     // dashboard
     if (std.mem.eql(u8, request_path, "/app")) {
-        try viewDashboard(request_id, request, &response_builder);
+        try viewDashboard(request_allocator, request_id, request, &response_builder);
         return try response_builder.toOwned(client.allocator);
     }
 
