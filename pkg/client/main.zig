@@ -72,19 +72,57 @@ export fn freeBytes(slice: PackedByteSlice) void {
     client.allocator.free(slice.native());
 }
 
-// XXX
+// XXX: dashboard view
 fn viewDashboard(
     request_allocator: std.mem.Allocator,
     request_id: u32,
     request: *const http.Request,
     response_builder: *http.ResponseBuilder,
 ) !void {
-    // TODO: retrieve the authentication token
-    // TODO: retrieve the checklists
-    // TODO: create a response
-
-    _ = request_id;
     _ = request;
+
+    // retrieve checklists
+    const checklists_task_id: task.TaskMultiHashMap.TaskId = 0;
+    const checklists_task_entry = try client.tasks.getOrPut(client.allocator, request_id, checklists_task_id);
+    if (!checklists_task_entry.found_existing) {
+        // TODO: clean up checklists_task_entry if the following fails before filling in the value?
+
+        var request_builder: http.RequestBuilder = undefined;
+        request_builder.init(request_allocator);
+        // XXX: we actually want this, if we care about freeing memory, but
+        // only if we're not returning error.WouldBlock below, except in this
+        // case request_allocator happens to be an arena allocator so freeing
+        // any allocated memory does nothing, which means it's safe to skip
+        // errdefer request_builder.deinit();
+
+        try request_builder.setUrl("http://localhost:8080/checklist"); // TODO: fill in origin based on incoming request or config
+        request_builder.setMethod(.GET);
+
+        checklists_task_entry.value_ptr.* = task.TaskMultiHashMap.Value{ .http = .{
+            .request = try request_builder.toOwned(client.allocator),
+            .result = .none,
+        } };
+
+        return error.WouldBlock;
+    }
+
+    const checklists_task = switch (checklists_task_entry.value_ptr.*) {
+        .http => |http_task| http_task,
+    };
+
+    const checklists_response = switch (checklists_task.result) {
+        .none => {
+            return error.WouldBlock;
+        },
+        .@"error" => {
+            // XXX: nested errors, better error tracing, etc?
+            return error.TaskFailed;
+        },
+        .response => |response| response,
+    };
+
+    // XXX
+    _ = checklists_response;
 
     // XXX
     const template = @embedFile("templates/dashboard.html");
@@ -158,10 +196,33 @@ const InvokeArguments = struct {
     httpRequest: http.Request,
 };
 
+const PendingTasks = struct {
+    taskIds: []const u32,
+};
+
 const InvokeResult = union(enum) {
     @"error": ClientError,
+    pendingTasks: PendingTasks, 
     httpResponse: http.Response,
 };
+
+// XXX
+fn collectTaskIds(request_id: u32) ![]const u32 {
+    // collect pending tasks
+    var task_ids = std.ArrayList(task.TaskMultiHashMap.TaskId).init(client.allocator);
+    errdefer task_ids.deinit();
+
+    // XXX: should be an iterator over tasks for this request ID
+    var task_iterator = client.tasks.tasks.iterator();
+    while (task_iterator.next()) |entry| {
+        // XXX
+        if (task.TaskMultiHashMap.unpackKeyTaskId(entry.key_ptr.*, request_id)) |task_id| {
+            try task_ids.append(task_id);
+        }
+    }
+
+    return try task_ids.toOwnedSlice();
+}
 
 // Public interface invoke wrapper.
 export fn invoke(data: PackedByteSlice) PackedByteSlice {
@@ -176,10 +237,29 @@ export fn invoke(data: PackedByteSlice) PackedByteSlice {
         defer arguments_parsed.deinit();
 
         // process request into response
+        const request_id = arguments_parsed.value.requestId;
         const response: http.Response = invokeInternal(
-            arguments_parsed.value.requestId,
+            request_id,
             &arguments_parsed.value.httpRequest,
-        ) catch |err| break :invoke err;
+        ) catch |invoke_error| switch (invoke_error) {
+            error.WouldBlock => {
+                const pending_task_ids = collectTaskIds(request_id) catch |err| break :invoke err;
+                const pending_tasks: PendingTasks = .{ .taskIds = pending_task_ids };
+
+                // serialize pending tasks response
+                const response_bytes = std.json.stringifyAlloc(
+                    client.allocator,
+                    InvokeResult{ .pendingTasks = pending_tasks },
+                    .{},
+                ) catch |err| break :invoke err;
+                errdefer client.allocator.free(response_bytes);
+
+                // return response data
+                break :invoke PackedByteSlice.init(response_bytes);
+            },
+            else => break :invoke invoke_error,
+        };
+
         defer response.deinit(client.allocator);
 
         // serialize http response

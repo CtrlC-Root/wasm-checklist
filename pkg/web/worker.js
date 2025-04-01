@@ -81,6 +81,14 @@ const application = async function (request) {
     throw new Error(`client invoke error: ${output.error.id}`);
   }
 
+  // TODO: handle pending tasks
+  if (Object.hasOwn(output, "pendingTasks")) {
+    console.log("PENDING TASKS:", output.pendingTasks);
+    return new Response("TODO: implement processing request tasks", {
+      status: 500,
+    });
+  }
+
   // XXX
   console.assert(Object.hasOwn(output, "httpResponse"));
   return await responseFromObject(output.httpResponse);

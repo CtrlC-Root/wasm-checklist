@@ -49,10 +49,10 @@ test "http task" {
 // XXX
 pub const TaskMultiHashMap = struct {
     const Self = @This();
-    const RequestId = u32;
-    const TaskId = u32;
+    pub const RequestId = u32;
+    pub const TaskId = u32;
 
-    const Key = task_id_type: {
+    pub const Key = task_id_type: {
         std.debug.assert(@typeInfo(RequestId).int.signedness == .unsigned);
         std.debug.assert(@typeInfo(TaskId).int.signedness == .unsigned);
 
@@ -64,9 +64,36 @@ pub const TaskMultiHashMap = struct {
         });
     };
 
-    const Value = union(enum) {
+    pub const Value = union(enum) {
         http: HttpTask,
     };
 
-    tasks: std.AutoHashMapUnmanaged(Self.Key, Self.Value) = .empty,
+    pub const HashMap = std.AutoHashMapUnmanaged(Self.Key, Self.Value);
+
+    tasks: Self.HashMap = .empty,
+
+    fn packKey(request_id: Self.RequestId, task_id: Self.TaskId) Self.Key {
+        return (@as(Self.Key, request_id) << @typeInfo(TaskId).int.bits) | @as(Self.Key, task_id);
+    }
+
+    // XXX: public for now but should be refactored to be internal only
+    pub fn unpackKeyTaskId(key: Self.Key, request_id: Self.RequestId) ?Self.TaskId {
+        const actual_request_id = @as(Self.RequestId, @intCast(key >> @typeInfo(TaskId).int.bits));
+        const task_id = @as(Self.TaskId, @truncate(key)); // discard upper bits
+
+        if (actual_request_id == request_id) {
+            return task_id;
+        } else {
+            return null;
+        }
+    }
+
+    pub fn getOrPut(
+        self: *Self,
+        allocator: std.mem.Allocator,
+        request_id: Self.RequestId,
+        task_id: Self.TaskId,
+    ) !Self.HashMap.GetOrPutResult {
+        return try self.tasks.getOrPut(allocator, Self.packKey(request_id, task_id));
+    }
 };

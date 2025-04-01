@@ -29,3 +29,11 @@ TODO
 ```bash
 zig build -Doptimize=ReleaseSmall  # or ReleaseFast
 ```
+
+## References
+
+Future improvements:
+
+* Client integration with CookieStore API once it's baseline available:
+  * https://developer.mozilla.org/en-US/docs/Web/API/CookieStore
+  * https://wicg.github.io/cookie-store/
