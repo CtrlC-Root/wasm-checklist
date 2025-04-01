@@ -36,7 +36,10 @@ const responseFromObject = async function (data) {
   });
 };
 
-// XXX
+// XXX: unique incrementing ID for requests
+var requestId = 0;
+
+// XXX: process application request to response
 const application = async function (request) {
   const loadedClient = await loader.client;
   const requestObject = await requestToObject(request);
@@ -47,8 +50,9 @@ const application = async function (request) {
   const byteArraySpec = new client.TypedArraySpecification('uint8'); // kinda verbose
 
   // XXX: this should be encapsulated in a movable JSON object type?
+  requestId += 1; // increment the request id
   const input = {
-    traceId: 123,  // TODO: use a real value here
+    requestId: requestId,
     httpRequest: requestObject,
   };
 

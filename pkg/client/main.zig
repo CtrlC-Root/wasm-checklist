@@ -73,24 +73,26 @@ export fn freeBytes(slice: PackedByteSlice) void {
 }
 
 // XXX
-fn viewDashboard(trace_id: u32, request: *const http.Request, response_builder: *http.ResponseBuilder) !void {
+fn viewDashboard(request_id: u32, request: *const http.Request, response_builder: *http.ResponseBuilder) !void {
     // TODO: retrieve the authentication token
     // TODO: retrieve the checklists
     // TODO: create a response
 
-    _ = trace_id;
+    _ = request_id;
     _ = request;
 
     // XXX
     const template = @embedFile("templates/dashboard.html");
+
     var buffer: std.ArrayListUnmanaged(u8) = .{};
     errdefer buffer.deinit(client.allocator);
-
     const writer = buffer.writer(client.allocator);
-    try zts.writeHeader(template, writer);
+
+    try zts.writeHeader(template, writer); // XXX: only on full page load
     try zts.print(template, "checklist-list-start", .{}, writer);
     try zts.print(template, "checklist-list-end", .{}, writer);
-    try zts.print(template, "footer", .{}, writer);
+    try zts.print(template, "footer", .{}, writer); // XXX: only on full page load
+
     const output = try buffer.toOwnedSlice(client.allocator);
     defer client.allocator.free(output);
 
@@ -100,7 +102,7 @@ fn viewDashboard(trace_id: u32, request: *const http.Request, response_builder: 
 }
 
 // XXX: internal invoke
-fn invokeInternal(trace_id: u32, request: *const http.Request) !http.Response {
+fn invokeInternal(request_id: u32, request: *const http.Request) !http.Response {
     var arena = std.heap.ArenaAllocator.init(client.allocator);
     defer arena.deinit();
     const request_allocator = arena.allocator();
@@ -117,7 +119,7 @@ fn invokeInternal(trace_id: u32, request: *const http.Request) !http.Response {
     const request_uri = try std.Uri.parse(request.url);
     const request_path = try request_uri.path.toRawMaybeAlloc(request_allocator);
 
-    // client version
+    // version
     if (std.mem.eql(u8, request_path, "/app/version")) {
         try response_builder.setHeader("Content-Type", "text/plain");
         try response_builder.setContent(build.version);
@@ -127,7 +129,7 @@ fn invokeInternal(trace_id: u32, request: *const http.Request) !http.Response {
 
     // dashboard
     if (std.mem.eql(u8, request_path, "/app")) {
-        try viewDashboard(trace_id, request, &response_builder);
+        try viewDashboard(request_id, request, &response_builder);
         return try response_builder.toOwned(client.allocator);
     }
 
@@ -144,12 +146,13 @@ const ClientError = struct {
 };
 
 // XXX: can we discover these from invokeInternal() function signature?
+// XXX: any way to use Zig naming convention while parsing with JSON naming
+// convention for field names?
 const InvokeArguments = struct {
-    traceId: u32, // XXX: note JS variable naming convention here
+    requestId: u32,
     httpRequest: http.Request,
 };
 
-// XXX: can we discover these from invokeInternal() function signature?
 const InvokeResult = union(enum) {
     @"error": ClientError,
     httpResponse: http.Response,
@@ -169,7 +172,7 @@ export fn invoke(data: PackedByteSlice) PackedByteSlice {
 
         // process request into response
         const response: http.Response = invokeInternal(
-            arguments_parsed.value.traceId,
+            arguments_parsed.value.requestId,
             &arguments_parsed.value.httpRequest,
         ) catch |err| break :invoke err;
         defer response.deinit(client.allocator);

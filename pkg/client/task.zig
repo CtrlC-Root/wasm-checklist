@@ -49,16 +49,16 @@ test "http task" {
 // XXX
 pub const TaskMultiHashMap = struct {
     const Self = @This();
-    const TraceId = u32;
-    const LocalId = u32;
+    const RequestId = u32;
+    const TaskId = u32;
 
     const Key = task_id_type: {
-        std.debug.assert(@typeInfo(TraceId).int.signedness == .unsigned);
-        std.debug.assert(@typeInfo(LocalId).int.signedness == .unsigned);
+        std.debug.assert(@typeInfo(RequestId).int.signedness == .unsigned);
+        std.debug.assert(@typeInfo(TaskId).int.signedness == .unsigned);
 
         break :task_id_type @Type(.{
             .int = .{
-                .bits = @typeInfo(TraceId).int.bits + @typeInfo(LocalId).int.bits,
+                .bits = @typeInfo(RequestId).int.bits + @typeInfo(TaskId).int.bits,
                 .signedness = .unsigned,
             },
         });
