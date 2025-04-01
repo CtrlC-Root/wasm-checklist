@@ -4,9 +4,9 @@ import client from "./client.js";
 // load and initialize client
 // https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope/location
 const loader = new client.ClientLoader(new URL('client.wasm', self.location));
-loader.load(); // run async in the background
+loader.load(); // start running async in the background
 
-// XXX: refactor this elsewhere
+// XXX: refactor this elsewhere (maybe into a wrapper type)
 // https://developer.mozilla.org/en-US/docs/Web/API/Request
 const requestToObject = async function (request) {
   console.assert(request instanceof Request);
@@ -25,7 +25,7 @@ const requestToObject = async function (request) {
   };
 };
 
-// XXX: refactor this elsewhere
+// XXX: refactor this elsewhere (maybe into a wrapper type)
 // https://developer.mozilla.org/en-US/docs/Web/API/Response
 const responseFromObject = async function (data) {
   return new Response(data.content, {
@@ -37,9 +37,11 @@ const responseFromObject = async function (data) {
 };
 
 // XXX: unique incrementing ID for requests
+// TODO: manage request IDs to ensure we wrap around to fit within a u32 type
+// and do not reuse any values that are in use by in-progress requests
 var lastRequestId = 0;
 
-// XXX: process application request to response
+// process an application request into a response
 const application = async function (request) {
   const loadedClient = await loader.client;
   const requestObject = await requestToObject(request);
@@ -99,7 +101,6 @@ self.addEventListener('activate', async (event) => {
 });
 
 self.addEventListener('fetch', async (event) => {
-  const client = await loader.client;
   const requestUrl = new URL(event.request.url);
 
   // XXX: only requests for our origin
