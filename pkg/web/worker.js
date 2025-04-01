@@ -37,7 +37,7 @@ const responseFromObject = async function (data) {
 };
 
 // XXX: unique incrementing ID for requests
-var requestId = 0;
+var lastRequestId = 0;
 
 // XXX: process application request to response
 const application = async function (request) {
@@ -50,7 +50,7 @@ const application = async function (request) {
   const byteArraySpec = new client.TypedArraySpecification('uint8'); // kinda verbose
 
   // XXX: this should be encapsulated in a movable JSON object type?
-  requestId += 1; // increment the request id
+  const requestId = ++lastRequestId; // use unique request IDs
   const input = {
     requestId: requestId,
     httpRequest: requestObject,
