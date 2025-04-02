@@ -12,7 +12,7 @@ pub fn StructOptionalFields(comptime Original: type) type {
         // https://ziglang.org/documentation/0.14.0/std/#std.builtin.Type.StructField
         const original_data_field = original_data_fields[index];
 
-        // XXX: what if the field is already optional?
+        // TODO: include already optional fields directly
         const optional_type = @Type(.{
             .optional = .{ .child = original_data_field.type },
         });
@@ -37,16 +37,61 @@ pub fn StructOptionalFields(comptime Original: type) type {
     });
 }
 
+// Create a struct to hold field updates for a given data struct.
+pub fn StructUpdates(comptime Data: type, comptime UpdateData: type) type {
+    const update_data_fields = std.meta.fields(UpdateData);
+
+    return struct {
+        const Self = @This();
+        const FieldBitSet = std.StaticBitSet(update_data_fields.len);
+
+        data: UpdateData = undefined,
+        fields: FieldBitSet = undefined,
+
+        pub fn init(self: *Self, data: *const UpdateData, field_names: []const []const u8) void {
+            self.* = .{
+                .data = data.*,
+                .fields = Self.FieldBitSet.initEmpty(),
+            };
+
+            // XXX: is there a way to do this more efficiently?
+            for (field_names) |field_name| {
+                inline for (0.., update_data_fields) |index, field| {
+                    if (std.mem.eql(u8, field.name, field_name)) {
+                        self.fields.set(index);
+                        break;
+                    }
+                } else {
+                    @panic("invalid field name");
+
+                    // XXX: some way to include the field name in the error message?
+                    // @panic(std.fmt.comptimePrint("invalid field name: {s}", .{ field_name }));
+                }
+            }
+        }
+
+        pub fn apply(self: Self, target: *Data) void {
+            inline for (0.., update_data_fields) |index, field| {
+                if (self.fields.isSet(index)) {
+                    // TODO: already optional fields should be a direct copy
+                    if (@field(self.data, field.name)) |value| {
+                        @field(target.*, field.name) = value;
+                    }
+                }
+            }
+        }
+    };
+}
+
 // Create a model struct.
 pub fn Model(comptime modelName: []const u8, comptime ModelData: type) type {
-    const optional_data_type = StructOptionalFields(ModelData);
     return struct {
         const Self = @This();
 
         pub const Id = u32;
         pub const Data = ModelData;
-        pub const OptionalData = optional_data_type;
-
+        pub const DataOptional = StructOptionalFields(Self.Data);
+        pub const DataUpdates = StructUpdates(Self.Data, Self.DataOptional);
         pub const name = modelName;
 
         id: Self.Id = undefined,
@@ -73,28 +118,17 @@ pub fn Model(comptime modelName: []const u8, comptime ModelData: type) type {
         pub fn update(
             self: *Self,
             allocator: std.mem.Allocator,
-            data: *const Self.OptionalData,
-            field_names: []const []const u8,
+            updates: *const Self.DataUpdates,
         ) !void {
             // assemble field values for the updated data by copying the
             // existing values (including references to allocated memory) and
             // overwriting fields specified by field_names from data values
-            // XXX: this is horribly inefficient but should be possible to do
-            // this in O(n) since we know all the fields at compile time
             var local_data: Self.Data = self.data.*;
-            inline for (std.meta.fields(Self.Data)) |field| {
-                for (field_names) |field_name| {
-                    if (std.mem.eql(u8, field.name, field_name)) {
-                        // XXX: optional fields in Self.Data should be a straight copy
-                        if (@field(data, field.name)) |value| {
-                            @field(local_data, field.name) = value;
-                        }
-                    }
-                }
-            }
+            updates.apply(&local_data);
 
             // allocate and initialize a new data instance using the local data
-            // assembled above for field values
+            // assembled above for field values so we have internally managed
+            // copies in the new data
             var updated_data = try allocator.create(Self.Data);
             errdefer allocator.destroy(updated_data);
 
@@ -198,12 +232,16 @@ test "checklist model usage" {
     try std.testing.expectEqual(sample_data.created_by_user_id, checklist.data.created_by_user_id);
     try std.testing.expectEqual(sample_data.created_on_timestamp, checklist.data.created_on_timestamp);
 
-    const sample_updates: Checklist.OptionalData = .{
-        .title = "Tomorrow's Tasks",
-        .created_by_user_id = 20,
-    };
+    var sample_updates: Checklist.DataUpdates = undefined;
+    sample_updates.init(
+        &.{
+            .title = "Tomorrow's Tasks",
+            .created_by_user_id = 20,
+        },
+        &.{"title"},
+    );
 
-    try checklist.update(std.testing.allocator, &sample_updates, &.{ "title" });
+    try checklist.update(std.testing.allocator, &sample_updates);
     try std.testing.expectEqualSlices(u8, "Tomorrow's Tasks", checklist.data.title);
     try std.testing.expectEqual(sample_data.created_by_user_id, checklist.data.created_by_user_id);
     try std.testing.expectEqual(sample_data.created_on_timestamp, checklist.data.created_on_timestamp);
