@@ -315,18 +315,18 @@ export class Application {
     var inputBuffer = new DataBuffer(Uint8Array, inputData.buffer.transfer());
     this.allocateDataBuffer(inputBuffer);
 
-    // invoke the client
+    // call the webassembly implementation
     const exports = this.#instance.exports;
     const outputSliceValue = exports.invoke(inputBuffer.packedSlice.value);
     const outputBuffer = new DataBuffer(Uint8Array, new PackedSlice(exports.memory, outputSliceValue));
 
+    // free webassembly memory
+    this.freeDataBuffer(inputBuffer);
+    this.freeDataBuffer(outputBuffer);
+
     // XXX: this should be encapsulated in a movable JSON object type?
     var output = JSON.parse(this.#textDecoder.decode(outputBuffer.data));
     console.debug("application invoke output:", output);
-
-    // free request and response memory in the client
-    this.freeDataBuffer(inputBuffer);
-    this.freeDataBuffer(outputBuffer);
 
     // handle errors by throwing
     if (Object.hasOwn(output, "error")) {
@@ -344,17 +344,17 @@ export class Application {
   getTask(requestId, taskId) {
     console.debug(`application getTask input: ${requestId}, ${taskId}`);
 
-    // invoke the client
+    // call the webassembly implementation
     const exports = this.#instance.exports;
     const outputSliceValue = exports.getTask(requestId, taskId);
     const outputBuffer = new DataBuffer(Uint8Array, new PackedSlice(exports.memory, outputSliceValue));
 
+    // free webassembly memory
+    this.freeDataBuffer(outputBuffer);
+
     // XXX: this should be encapsulated in a movable JSON object type?
     var output = JSON.parse(this.#textDecoder.decode(outputBuffer.data));
     console.debug(`application getTask output:`, output);
-
-    // free request and response memory in the client
-    this.freeDataBuffer(outputBuffer);
 
     // handle client errors by throwing
     if (Object.hasOwn(output, "error")) {
@@ -372,18 +372,18 @@ export class Application {
     var resultBuffer = new DataBuffer(Uint8Array, resultData.buffer.transfer());
     this.allocateDataBuffer(resultBuffer);
 
-    // invoke the client
+    // call the webassembly implementation
     const exports = this.#instance.exports;
     const outputSliceValue = exports.completeTask(requestId, taskId, resultBuffer.packedSlice.value);
     const outputBuffer = new DataBuffer(Uint8Array, new PackedSlice(exports.memory, outputSliceValue));
 
+    // free webassembly memory
+    this.freeDataBuffer(resultBuffer);
+    this.freeDataBuffer(outputBuffer);
+
     // XXX: this should be encapsulated in a movable JSON object type?
     var output = JSON.parse(this.#textDecoder.decode(outputBuffer.data));
     console.debug("application completeTask output:", output);
-
-    // free request and response memory in the client
-    this.freeDataBuffer(resultBuffer);
-    this.freeDataBuffer(outputBuffer);
 
     // handle client errors by throwing
     if (Object.hasOwn(output, "error")) {
