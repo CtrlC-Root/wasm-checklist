@@ -118,8 +118,8 @@ pub fn main() !void {
     defer server.deinit();
 
     // server processing loop
-    std.debug.print("Listening for connections on {}\n", .{ listen_address });
-    signal_interrupt.reset();    
+    std.debug.print("Listening for connections on {}\n", .{listen_address});
+    signal_interrupt.reset();
     while (true) {
         // stop running if we receive an interrupt signal
         if (signal_interrupt.isSet()) {

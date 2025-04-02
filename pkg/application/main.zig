@@ -202,7 +202,7 @@ const PendingTasks = struct {
 
 const InvokeResult = union(enum) {
     @"error": ClientError,
-    pendingTasks: PendingTasks, 
+    pendingTasks: PendingTasks,
     httpResponse: http.Response,
 };
 
