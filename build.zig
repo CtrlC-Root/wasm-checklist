@@ -78,38 +78,38 @@ pub fn build(b: *std.Build) void {
     server_executable.root_module.addOptions("build", build_options);
     b.installArtifact(server_executable);
 
-    // webassembly client executable
-    const client_zts_dependency = b.dependency("zts", .{
+    // application webassembly executable
+    const wasm_zts_dependency = b.dependency("zts", .{
         .target = wasm_target,
         .optimize = optimize,
     });
 
-    const client_root_source_file = b.path("pkg/client/main.zig");
-    const client_executable = b.addExecutable(.{
-        .name = "client",
-        .root_source_file = client_root_source_file,
+    const application_root_source_file = b.path("pkg/application/main.zig");
+    const application_executable = b.addExecutable(.{
+        .name = "application",
+        .root_source_file = application_root_source_file,
         .target = wasm_target,
         .optimize = optimize,
     });
 
-    client_executable.root_module.addOptions("build", build_options);
-    client_executable.root_module.addImport("zts", client_zts_dependency.module("zts"));
+    application_executable.root_module.addOptions("build", build_options);
+    application_executable.root_module.addImport("zts", wasm_zts_dependency.module("zts"));
 
-    client_executable.entry = .disabled; // no default entry point
-    client_executable.rdynamic = true; // expose exported functions
-    b.installArtifact(client_executable);
+    application_executable.entry = .disabled; // no default entry point
+    application_executable.rdynamic = true; // expose exported functions
+    b.installArtifact(application_executable);
 
-    // client unit tests
-    const client_unit_tests = b.addTest(.{
-        .root_source_file = client_root_source_file,
+    // application unit tests
+    const application_unit_tests = b.addTest(.{
+        .root_source_file = application_root_source_file,
         .target = local_target,
         .optimize = optimize,
     });
 
-    client_unit_tests.root_module.addOptions("build", build_options);
-    client_unit_tests.root_module.addImport("zts", client_zts_dependency.module("zts"));
+    application_unit_tests.root_module.addOptions("build", build_options);
+    application_unit_tests.root_module.addImport("zts", wasm_zts_dependency.module("zts"));
 
-    const run_client_unit_tests = b.addRunArtifact(client_unit_tests);
+    const run_application_unit_tests = b.addRunArtifact(application_unit_tests);
 
     // web distribution
     // TODO: detect static files instead of hard-coding them here
@@ -117,9 +117,9 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/application.js"), "web/application.js").step);
     b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/index.js"), "web/index.js").step);
     b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/worker.js"), "web/worker.js").step);
-    b.getInstallStep().dependOn(&b.addInstallFile(client_executable.getEmittedBin(), "web/client.wasm").step);
+    b.getInstallStep().dependOn(&b.addInstallFile(application_executable.getEmittedBin(), "web/application.wasm").step);
 
     // target to run tests
     const test_step = b.step("test", "run tests");
-    test_step.dependOn(&run_client_unit_tests.step);
+    test_step.dependOn(&run_application_unit_tests.step);
 }

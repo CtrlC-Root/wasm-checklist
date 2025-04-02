@@ -3,7 +3,7 @@ import app from "./application.js";
 
 // load and initialize client
 // https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope/location
-const loader = new app.Loader(new URL('client.wasm', self.location));
+const loader = new app.Loader(new URL('application.wasm', self.location));
 loader.load(); // start running async in the background
 
 // XXX: refactor this elsewhere (maybe into a wrapper type)
