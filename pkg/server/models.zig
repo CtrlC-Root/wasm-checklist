@@ -141,7 +141,7 @@ pub fn Model(comptime modelName: []const u8, comptime ModelData: type) type {
             local_data = undefined;
 
             // validate the updated data
-            try updated_data.update(@as(*const Self.Data, @ptrCast(self.data)));
+            try updated_data.update(self.data);
 
             // deinitialize the existing data
             self.data.deinit(allocator);
