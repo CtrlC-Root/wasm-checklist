@@ -290,7 +290,7 @@ export class Application {
     }
 
     const packedSlice = this.#allocateBytes(dataBuffer.byteLength);
-    const arrayBuffer = dataBuffer.exchangeWithPackedSlice(packedSlice);
+    dataBuffer.exchangeWithPackedSlice(packedSlice);
   }
 
   // Free memory referenced by the data buffer from this application's
