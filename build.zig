@@ -114,8 +114,8 @@ pub fn build(b: *std.Build) void {
     // web distribution
     // TODO: detect static files instead of hard-coding them here
     b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/index.html"), "web/index.html").step);
+    b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/application.js"), "web/application.js").step);
     b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/index.js"), "web/index.js").step);
-    b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/client.js"), "web/client.js").step);
     b.getInstallStep().dependOn(&b.addInstallFile(b.path("pkg/web/worker.js"), "web/worker.js").step);
     b.getInstallStep().dependOn(&b.addInstallFile(client_executable.getEmittedBin(), "web/client.wasm").step);
 

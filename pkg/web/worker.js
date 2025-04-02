@@ -1,9 +1,9 @@
 // https://web.dev/articles/es-modules-in-sw#static_imports_only
-import client from "./client.js";
+import app from "./application.js";
 
 // load and initialize client
 // https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope/location
-const loader = new client.ClientLoader(new URL('client.wasm', self.location));
+const loader = new app.Loader(new URL('client.wasm', self.location));
 loader.load(); // start running async in the background
 
 // XXX: refactor this elsewhere (maybe into a wrapper type)
@@ -76,115 +76,14 @@ const responseFromObject = async function (data) {
   });
 };
 
-// XXX: refactor this into the client class
-const invoke = function (loadedClient, input) {
-  console.debug("invoke input:", input);
-
-  // XXX: cache and reuse these across calls to this method
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  const byteArraySpec = new client.TypedArraySpecification('uint8'); // kinda verbose
-
-  // XXX: this should be encapsulated in a movable JSON object type?
-  var inputData = encoder.encode(JSON.stringify(input));
-  var inputBuffer = new client.ClientArrayBuffer(byteArraySpec, inputData.buffer.transfer());
-  loadedClient.moveArrayBufferIn(inputBuffer); // allocates buffer memory inside client
-
-  // invoke the client
-  const exports = loadedClient.instance.exports;
-  var outputSlice = new client.PackedSlice(exports.memory, exports.invoke(inputBuffer.slice.value));
-
-  // XXX: this should be encapsulated in a movable JSON object type?
-  var outputBuffer = new client.ClientArrayBuffer(byteArraySpec, outputSlice); // uses existing memory inside client
-  var output = JSON.parse(decoder.decode(outputBuffer.array));
-
-  // free request and response memory in the client
-  loadedClient.moveArrayBufferOut(inputBuffer);  // deallocates buffer memory inside client
-  loadedClient.moveArrayBufferOut(outputBuffer); // deallocates buffer memory inside client
-
-  console.debug("invoke output:", output);
-
-  // handle client errors by throwing
-  if (Object.hasOwn(output, "error")) {
-    throw new Error(`invoke error: ${output.error.id}`);
-  }
-
-  return output;
-}
-
-// XXX: refactor this into the client class
-const getTask = function (loadedClient, requestId, taskId) {
-  console.debug(`getTask input: ${requestId}, ${taskId}`);
-
-  // XXX: cache and reuse these across calls to this method
-  const decoder = new TextDecoder();
-  const byteArraySpec = new client.TypedArraySpecification('uint8'); // kinda verbose
-
-  // invoke the client
-  const exports = loadedClient.instance.exports;
-  var outputSlice = new client.PackedSlice(exports.memory, exports.getTask(requestId, taskId));
-
-  // XXX: this should be encapsulated in a movable JSON object type?
-  var outputBuffer = new client.ClientArrayBuffer(byteArraySpec, outputSlice); // uses existing memory inside client
-  var output = JSON.parse(decoder.decode(outputBuffer.array));
-
-  // free request and response memory in the client
-  loadedClient.moveArrayBufferOut(outputBuffer); // deallocates buffer memory inside client
-
-  console.debug(`getTask output:`, output);
-
-  // handle client errors by throwing
-  if (Object.hasOwn(output, "error")) {
-    throw new Error(`getTask error: ${output.error.id}`);
-  }
-
-  return output;
-}
-
-// XXX: refactor this into the client class
-const completeTask = function (loadedClient, requestId, taskId, data) {
-  console.debug(`completeTask input: ${requestId}, ${taskId}:`, data);
-
-  // XXX: cache and reuse these across calls to this method
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  const byteArraySpec = new client.TypedArraySpecification('uint8'); // kinda verbose
-
-  // XXX: this should be encapsulated in a movable JSON object type?
-  var inputData = encoder.encode(JSON.stringify(data));
-  var inputBuffer = new client.ClientArrayBuffer(byteArraySpec, inputData.buffer.transfer());
-  loadedClient.moveArrayBufferIn(inputBuffer); // allocates buffer memory inside client
-
-  // invoke the client
-  const exports = loadedClient.instance.exports;
-  var outputSlice = new client.PackedSlice(exports.memory, exports.completeTask(requestId, taskId, inputBuffer.slice.value));
-
-  // XXX: this should be encapsulated in a movable JSON object type?
-  var outputBuffer = new client.ClientArrayBuffer(byteArraySpec, outputSlice); // uses existing memory inside client
-  var output = JSON.parse(decoder.decode(outputBuffer.array));
-
-  // free request and response memory in the client
-  loadedClient.moveArrayBufferOut(inputBuffer);  // deallocates buffer memory inside client
-  loadedClient.moveArrayBufferOut(outputBuffer); // deallocates buffer memory inside client
-
-  console.debug("completeTask output:", output);
-
-  // handle client errors by throwing
-  if (Object.hasOwn(output, "error")) {
-    throw new Error(`completeTask error: ${output.error.id}`);
-  }
-
-  return output;
-}
-
 // XXX: unique incrementing ID for requests
 // TODO: manage request IDs to ensure we wrap around to fit within a u32 type
 // and do not reuse any values that are in use by in-progress requests
 var lastRequestId = 0;
 
 // process an application request into a response
-const application = async function (request) {
-  const loadedClient = await loader.client;
+const applicationRequest = async function (request) {
+  const application = await loader.application;
   const requestObject = await requestToObject(request);
 
   // prepare input data from application request
@@ -196,12 +95,12 @@ const application = async function (request) {
 
   // process the request into a response
   var remainingInvokeAttempts = 3; // XXX: artificial limit to prevent infinite looping
-  var output = invoke(loadedClient, input);
+  var output = application.invoke(input);
   while (Object.hasOwn(output, "pendingTasks") && remainingInvokeAttempts > 0) {
     for (const taskId of output.pendingTasks.taskIds) {
       console.debug(`proccessing request ${requestId} task ${taskId}`);
 
-      const taskData = getTask(loadedClient, requestId, taskId);
+      const taskData = application.getTask(requestId, taskId);
       console.assert(Object.hasOwn(taskData.data, "http"));
 
       const requestData = taskData.data.http.request;
@@ -210,16 +109,17 @@ const application = async function (request) {
       try {
         const response = await fetch(request);
         const responseData = await responseToObject(response);
-        completeTask(loadedClient, requestId, taskId, { response: responseData });
+        application.completeTask(requestId, taskId, { response: responseData });
       } catch (error) {
         // TODO: actually use error to determine this
-        completeTask(loadedClient, requestId, taskId, { error: "connect_failed" });
+        const taskError = "connect_failed";
+        application.completeTask(requestId, taskId, { error: taskError });
       }
     }
 
     // attempt to process the request again
     remainingInvokeAttempts -= 1; // XXX    
-    output = invoke(loadedClient, input);
+    output = application.invoke(input);
   }
 
   // XXX
@@ -257,8 +157,8 @@ self.addEventListener('fetch', async (event) => {
     }
 
     // XXX: client requests
-    if (requestUrl.pathname.startsWith('/app')) {
-      event.respondWith(application(event.request));
+    if (requestUrl.pathname.startsWith('/app/') || requestUrl.pathname == '/app') {
+      event.respondWith(applicationRequest(event.request));
       return;
     }
   }

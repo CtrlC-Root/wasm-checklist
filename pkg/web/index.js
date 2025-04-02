@@ -1,6 +1,6 @@
 // DEBUG
-import client from "./client.js";
-Object.assign(window, client);
+import app from "./application.js";
+Object.assign(window, app);
 
 // since the script is included in the <head> element we need to wait for the
 // document content to load before we run or we won't be able to interact with
