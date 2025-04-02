@@ -278,6 +278,8 @@ export class Application {
     slice.invalidate();
   }
 
+  // Allocate memory for the data buffer in this application's WebAssembly
+  // instance. This copies data between two array buffer views.
   allocateDataBuffer(dataBuffer) {
     if (!(dataBuffer instanceof DataBuffer)) {
       throw new Error("dataBuffer must be a DataBuffer instance");
@@ -287,10 +289,12 @@ export class Application {
       throw new Error("dataBuffer is already referencing allocated data");
     }
 
-    const slice = this.#allocateBytes(dataBuffer.byteLength);
-    const arrayBuffer = dataBuffer.exchangeWithPackedSlice(slice);
+    const packedSlice = this.#allocateBytes(dataBuffer.byteLength);
+    const arrayBuffer = dataBuffer.exchangeWithPackedSlice(packedSlice);
   }
 
+  // Free memory referenced by the data buffer from this application's
+  // WebAssembly instance. This copies data between two array buffer views.
   freeDataBuffer(dataBuffer) {
     if (!(dataBuffer instanceof DataBuffer)) {
       throw new Error("dataBuffer must be a DataBuffer instance");
@@ -300,13 +304,18 @@ export class Application {
       throw new Error("dataBuffer is not referencing allocated data");
     }
 
-    // TODO: validate dataBuffer.#packedSlice.memory == this.#instance.memory
+    if (dataBuffer.packedSlice.memory != this.#instance.exports.memory) {
+      throw new Error("dataBuffer is referencing memory in a different WebAssembly instance");
+    }
 
     const arrayBuffer = new ArrayBuffer(dataBuffer.byteLength);
-    const slice = dataBuffer.exchangeWithArrayBuffer(arrayBuffer);
-    this.#freeBytes(slice);
+    const packedSlice = dataBuffer.exchangeWithArrayBuffer(arrayBuffer);
+    this.#freeBytes(packedSlice);
   }
 
+  // Process a request into a response or a list of pending tasks that must be
+  // completed in order for the request to progress towards completion on
+  // subsequent attempts.
   invoke(input) {
     console.debug("application invoke input:", input);
 

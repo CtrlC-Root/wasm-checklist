@@ -93,10 +93,22 @@ const applicationRequest = async function (request) {
     httpRequest: requestObject,
   };
 
+  // TODO: we should process pending tasks into promises then await on all of
+  // them to complete in parallel instead of processing pending tasks one at a
+  // time in series which could take much longer
+
+  // TODO: should requests guarantee they complete within a fixed number of
+  // attempts and if not then what would be a reasonable upper limit? can the
+  // view itself inform the caller how many attempts will be required?
+
   // process the request into a response
   var remainingInvokeAttempts = 3; // XXX: artificial limit to prevent infinite looping
   var output = application.invoke(input);
-  while (Object.hasOwn(output, "pendingTasks") && remainingInvokeAttempts > 0) {
+  while (Object.hasOwn(output, "pendingTasks")) {
+    if (remainingInvokeAttempts == 0) {
+      throw new Error("application ran out of attempts to process pending tasks");
+    }
+
     for (const taskId of output.pendingTasks.taskIds) {
       console.debug(`proccessing request ${requestId} task ${taskId}`);
 
@@ -111,20 +123,15 @@ const applicationRequest = async function (request) {
         const responseData = await responseToObject(response);
         application.completeTask(requestId, taskId, { response: responseData });
       } catch (error) {
-        // TODO: actually use error to determine this
+        // TODO: actually use caught error to determine this
         const taskError = "connect_failed";
         application.completeTask(requestId, taskId, { error: taskError });
       }
     }
 
     // attempt to process the request again
-    remainingInvokeAttempts -= 1; // XXX    
+    remainingInvokeAttempts -= 1;
     output = application.invoke(input);
-  }
-
-  // XXX
-  if (Object.hasOwn(output, "pendingTasks")) {
-    throw new Error("application ran out of attempts to process pending tasks");
   }
 
   // convert output data into application response
@@ -151,13 +158,15 @@ self.addEventListener('fetch', async (event) => {
 
   // XXX: only requests for our origin
   if (requestUrl.origin === self.location.origin) {
-    // XXX: client static assets
-    if (requestUrl.pathname.startsWith('/static')) {
-      // TODO: cache then fall through
+    // XXX: static assets
+    if (requestUrl.pathname.startsWith('/static/')) {
+      // TODO: cache or fetch and cache requests
+      event.respondWith(new Response(500, { body: "TODO: implement this" }));
+      return;
     }
 
-    // XXX: client requests
-    if (requestUrl.pathname.startsWith('/app/') || requestUrl.pathname == '/app') {
+    // application
+    if (requestUrl.pathname == '/app' || requestUrl.pathname.startsWith('/app/')) {
       event.respondWith(applicationRequest(event.request));
       return;
     }
