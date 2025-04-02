@@ -1,12 +1,31 @@
+// Zig
 const builtin = @import("builtin");
 const std = @import("std");
 
+// first-party
 const models = @import("models.zig");
-const store = @import("store.zig");
+// const store = @import("store.zig");
 
+// testing related import processing
+test {
+    // note: this only sees public declarations so the only way to include
+    // tests that are not otherwise reachable by following those is to
+    // explicitly use the related struct which contains it
+    std.testing.refAllDeclsRecursive(@This());
+
+    // XXX: see above
+    _ = models.User;
+    _ = models.Checklist;
+}
+
+// Signal handler sets this thread event to notify main thread the process has
+// received an interrupt signal and it should quit cleanly.
 var signal_interrupt: std.Thread.ResetEvent = .{};
+
+// Debug allocator for debug builds.
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
+// Handle signals.
 pub fn signal_handle(signal: c_int) callconv(.C) void {
     switch (signal) {
         std.posix.SIG.INT => signal_interrupt.set(),
@@ -16,178 +35,10 @@ pub fn signal_handle(signal: c_int) callconv(.C) void {
     }
 }
 
-fn processModelRequest(
-    comptime Model: type,
-    request_allocator: std.mem.Allocator,
-    model_allocator: std.mem.Allocator,
-    model_store: *store.modelMemoryStore(Model),
-    request: *std.http.Server.Request,
-) !void {
-    const model_prefix = try std.fmt.allocPrint(request_allocator, "/{s}", .{Model.name});
-    defer request_allocator.free(model_prefix);
-
-    std.debug.assert(std.mem.startsWith(u8, request.head.target, model_prefix));
-    const target_without_prefix = std.mem.trimLeft(u8, request.head.target[model_prefix.len..], "/"); // XXX
-
-    // collection request
-    if (target_without_prefix.len == 0) {
-        switch (request.head.method) {
-            // get all instances
-            .GET => {
-                var instances: std.ArrayListUnmanaged(*const Model) = .empty;
-                defer instances.deinit(request_allocator);
-
-                var instance_iterator = model_store.instances.valueIterator();
-                while (instance_iterator.next()) |instance| {
-                    try instances.append(request_allocator, instance);
-                }
-
-                const response = try std.json.stringifyAlloc(request_allocator, instances.items, .{});
-                defer request_allocator.free(response);
-
-                try request.respond(response, .{
-                    .extra_headers = &.{
-                        .{ .name = "Content-Type", .value = "application/json" },
-                        .{ .name = "Access-Control-Allow-Origin", .value = "*" },
-                    },
-                });
-            },
-            // create a new instance
-            .POST => {
-                // XXX: make this a runtime error
-                std.debug.assert(std.mem.eql(u8, request.head.content_type.?, "application/json"));
-
-                // parse request body as model data
-                const request_reader = try request.reader();
-                var json_reader = std.json.reader(request_allocator, request_reader);
-                defer json_reader.deinit();
-
-                const data_parsed = try std.json.parseFromTokenSource(
-                    Model.Data,
-                    request_allocator,
-                    &json_reader,
-                    .{},
-                );
-
-                defer data_parsed.deinit();
-
-                // create an instance of the model
-                const instance_id = try model_store.create(model_allocator, &data_parsed.value);
-                std.debug.print("{s}: created instance: {d}\n", .{ Model.name, instance_id });
-
-                // inform the client of the new instance
-                const response = try std.fmt.allocPrint(request_allocator, "{d}", .{instance_id});
-                defer request_allocator.free(response);
-
-                try request.respond(response, .{
-                    .status = std.http.Status.created,
-                });
-            },
-            else => {
-                try request.respond("Method Not Allowed", .{
-                    .status = std.http.Status.method_not_allowed,
-                });
-            },
-        }
-        // instance request
-    } else {
-        const instance_id = try std.fmt.parseInt(Model.Id, target_without_prefix, 10);
-        switch (request.head.method) {
-            // get instance
-            .GET => {
-                if (model_store.retrieve(instance_id)) |data| {
-                    std.debug.print("{s}: retrieved instance: {d}\n", .{ Model.name, instance_id });
-                    const response = try std.json.stringifyAlloc(request_allocator, data, .{});
-                    defer request_allocator.free(response);
-
-                    try request.respond(response, .{
-                        .extra_headers = &.{
-                            .{ .name = "Content-Type", .value = "application/json" },
-                        },
-                    });
-                } else {
-                    std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
-                    try request.respond("Not Found", .{
-                        .status = std.http.Status.not_found,
-                    });
-                }
-            },
-            // update instance
-            .PUT => {
-                // XXX: make this a runtime error
-                std.debug.assert(std.mem.eql(u8, request.head.content_type.?, "application/json"));
-
-                // parse request body as model data
-                const request_reader = try request.reader();
-                var json_reader = std.json.reader(request_allocator, request_reader);
-                defer json_reader.deinit();
-
-                const data_parsed = try std.json.parseFromTokenSource(
-                    Model.Data,
-                    request_allocator,
-                    &json_reader,
-                    .{},
-                );
-
-                defer data_parsed.deinit();
-
-                // update the instance
-                const updated_instance_id = try model_store.update(model_allocator, instance_id, &data_parsed.value);
-                if (updated_instance_id) |_| {
-                    std.debug.print("{s}: instance updated: {d}\n", .{ Model.name, instance_id });
-                    try request.respond("", .{
-                        .status = std.http.Status.no_content,
-                    });
-                } else {
-                    std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
-                    try request.respond("Not Found", .{
-                        .status = std.http.Status.not_found,
-                    });
-                }
-            },
-            // delete instance
-            .DELETE => {
-                if (model_store.destroy(model_allocator, instance_id)) |_| {
-                    std.debug.print("{s}: destroyed instance: {d}\n", .{ Model.name, instance_id });
-                    try request.respond("", .{
-                        .status = std.http.Status.no_content,
-                    });
-                } else {
-                    std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
-                    try request.respond("Not Found", .{
-                        .status = std.http.Status.not_found,
-                    });
-                }
-            },
-            else => {
-                try request.respond("Method Not Allowed", .{
-                    .status = std.http.Status.method_not_allowed,
-                });
-            },
-        }
-    }
-}
-
-fn processRequest(
-    allocator: std.mem.Allocator,
-    data: *store.MemoryDataStore,
-    request: *std.http.Server.Request,
-) !void {
-    // TODO: compile time generate code for each model? or processModelRequest() can raise error for not matching?
-    if (std.mem.startsWith(u8, request.head.target, "/user/") or std.mem.eql(u8, request.head.target, "/user")) {
-        try processModelRequest(models.User, allocator, data.allocator, &data.users, request);
-    } else if (std.mem.startsWith(u8, request.head.target, "/checklist/") or std.mem.eql(u8, request.head.target, "/checklist")) {
-        try processModelRequest(models.Checklist, allocator, data.allocator, &data.checklists, request);
-    } else {
-        try request.respond("Not Found", .{
-            .status = std.http.Status.not_found,
-        });
-    }
-}
-
+// XXX
 fn processClient(
-    allocator: std.mem.Allocator,
-    data: *store.MemoryDataStore,
+    // allocator: std.mem.Allocator,
+    // data: *store.MemoryDataStore,
     connection: *std.net.Server.Connection,
 ) !void {
     var buffer: [65535]u8 = undefined; // XXX: allocate fixed buffer
@@ -199,21 +50,36 @@ fn processClient(
             break;
         }
 
+        // TODO: make this non-blocking
         var request = client.receiveHead() catch |err| switch (err) {
             std.http.Server.ReceiveHeadError.HttpConnectionClosing => break,
             else => return err,
         };
 
+        std.debug.print("{s}: {s}\n", .{ @tagName(request.head.method), request.head.target });
+
+        // TODO: placeholder
+        try request.respond("todo", .{
+            .status = std.http.Status.ok,
+        });
+
         // XXX: use an arena allocator?
-        processRequest(allocator, data, &request) catch {
-            // XXX: include error message
-            try request.respond("uh oh", .{
-                .status = std.http.Status.internal_server_error,
-            });
-        };
+        // processRequest(allocator, data, &request) catch {
+        //     // XXX: include error message
+        //     try request.respond("uh oh", .{
+        //         .status = std.http.Status.internal_server_error,
+        //     });
+        // };
+
+        // TODO: close connection after processing one request so we don't get
+        // blocked waiting for the next client.receiveHead() if the client is
+        // keeping the connection alive but not sending more requests
+        connection.stream.close();
+        break;
     }
 }
 
+// Application entry point.
 pub fn main() !void {
     // create an allocator
     // https://ziglang.org/download/0.14.0/release-notes.html#SmpAllocator
@@ -227,11 +93,11 @@ pub fn main() !void {
         std.debug.assert(result == .ok);
     };
 
-    // initialize data store
-    var data: store.MemoryDataStore = .{};
-    data.init(allocator);
-
-    defer data.deinit();
+    // TODO: initialize data store
+    _ = allocator;
+    // var user: models.User = undefined;
+    // try user.init(allocator, 0, &.{ .display_name = "TEST" });
+    // defer user.deinit(allocator);
 
     // install signal handlers
     const signal_action = std.posix.Sigaction{
@@ -252,7 +118,8 @@ pub fn main() !void {
     defer server.deinit();
 
     // server processing loop
-    signal_interrupt.reset();
+    std.debug.print("Listening for connections on {}\n", .{ listen_address });
+    signal_interrupt.reset();    
     while (true) {
         // stop running if we receive an interrupt signal
         if (signal_interrupt.isSet()) {
@@ -260,7 +127,6 @@ pub fn main() !void {
         }
 
         // accept and process a client connection
-        // XXX: make this non-blocking
         var client_connection = server.accept() catch |err| switch (err) {
             std.posix.AcceptError.WouldBlock => {
                 std.time.sleep(1000 * 250);
@@ -269,7 +135,7 @@ pub fn main() !void {
             else => return err,
         };
 
-        try processClient(allocator, &data, &client_connection);
+        try processClient(&client_connection);
     }
 
     // XXX: adjust exit status based on signal?
