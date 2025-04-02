@@ -28,6 +28,9 @@ const requestToObject = async function (request) {
 // XXX: refactor this elsewhere (maybe into a wrapper type)
 // https://developer.mozilla.org/en-US/docs/Web/API/Request
 const requestFromObject = async function (data) {
+  // XXX: might need to specify Request mode in constructor
+  // https://developer.mozilla.org/en-US/docs/Web/API/Request/mode
+
   const options = {
     method: data.method,
     headers: Object.fromEntries(data.headers.map((header) => {
@@ -75,7 +78,7 @@ const responseFromObject = async function (data) {
 
 // XXX: refactor this into the client class
 const invoke = function (loadedClient, input) {
-  console.debug("APP INVOKE INPUT:", input);
+  console.debug("invoke input:", input);
 
   // XXX: cache and reuse these across calls to this method
   const encoder = new TextEncoder();
@@ -99,11 +102,11 @@ const invoke = function (loadedClient, input) {
   loadedClient.moveArrayBufferOut(inputBuffer);  // deallocates buffer memory inside client
   loadedClient.moveArrayBufferOut(outputBuffer); // deallocates buffer memory inside client
 
-  console.debug("APP INVOKE OUTPUT:", output);
+  console.debug("invoke output:", output);
 
   // handle client errors by throwing
   if (Object.hasOwn(output, "error")) {
-    throw new Error(`client invoke error: ${output.error.id}`);
+    throw new Error(`invoke error: ${output.error.id}`);
   }
 
   return output;
@@ -111,7 +114,7 @@ const invoke = function (loadedClient, input) {
 
 // XXX: refactor this into the client class
 const getTask = function (loadedClient, requestId, taskId) {
-  console.debug(`GET REQUEST ${requestId} TASK ${taskId}`);
+  console.debug(`getTask input: ${requestId}, ${taskId}`);
 
   // XXX: cache and reuse these across calls to this method
   const decoder = new TextDecoder();
@@ -128,11 +131,11 @@ const getTask = function (loadedClient, requestId, taskId) {
   // free request and response memory in the client
   loadedClient.moveArrayBufferOut(outputBuffer); // deallocates buffer memory inside client
 
-  console.debug(`GET REQUEST ${requestId} TASK ${taskId}:`, output);
+  console.debug(`getTask output:`, output);
 
   // handle client errors by throwing
   if (Object.hasOwn(output, "error")) {
-    throw new Error(`complete request error: ${output.error.id}`);
+    throw new Error(`getTask error: ${output.error.id}`);
   }
 
   return output;
@@ -140,7 +143,7 @@ const getTask = function (loadedClient, requestId, taskId) {
 
 // XXX: refactor this into the client class
 const completeTask = function (loadedClient, requestId, taskId, data) {
-  console.debug(`COMPLETE REQUEST ${requestId} TASK ${taskId} WITH:`, data);
+  console.debug(`completeTask input: ${requestId}, ${taskId}:`, data);
 
   // XXX: cache and reuse these across calls to this method
   const encoder = new TextEncoder();
@@ -164,11 +167,11 @@ const completeTask = function (loadedClient, requestId, taskId, data) {
   loadedClient.moveArrayBufferOut(inputBuffer);  // deallocates buffer memory inside client
   loadedClient.moveArrayBufferOut(outputBuffer); // deallocates buffer memory inside client
 
-  console.debug("COMPLETE REQUEST OUTPUT:", output);
+  console.debug("completeTask output:", output);
 
   // handle client errors by throwing
   if (Object.hasOwn(output, "error")) {
-    throw new Error(`complete request error: ${output.error.id}`);
+    throw new Error(`completeTask error: ${output.error.id}`);
   }
 
   return output;
@@ -221,7 +224,7 @@ const application = async function (request) {
 
   // XXX
   if (Object.hasOwn(output, "pendingTasks")) {
-    throw new Error("ran out of attempts to process pending tasks");
+    throw new Error("application ran out of attempts to process pending tasks");
   }
 
   // convert output data into application response
