@@ -18,7 +18,7 @@ test {
     _ = model.Checklist;
 
     // XXX: see above
-    _ = store.DefaultStore;
+    _ = store.DataStore;
 }
 
 // Signal handler sets this thread event to notify main thread the process has
