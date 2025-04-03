@@ -207,7 +207,7 @@ pub const Checklist = Model("checklist", struct {
         if (self.title.len == 0) {
             return error.InvalidValue;
         }
-    
+
         const created_by_changed = (self.created_by_user_id != previous.created_by_user_id);
         const created_on_changed = (self.created_on_timestamp != previous.created_on_timestamp);
         if (created_by_changed or created_on_changed) {

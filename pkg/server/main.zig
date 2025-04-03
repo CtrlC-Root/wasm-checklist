@@ -3,8 +3,8 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 // first-party
-const models = @import("models.zig");
-// const store = @import("store.zig");
+const model = @import("model.zig");
+const store = @import("store.zig");
 
 // testing related import processing
 test {
@@ -14,8 +14,11 @@ test {
     std.testing.refAllDeclsRecursive(@This());
 
     // XXX: see above
-    _ = models.User;
-    _ = models.Checklist;
+    _ = model.User;
+    _ = model.Checklist;
+
+    // XXX: see above
+    _ = store.DefaultStore;
 }
 
 // Signal handler sets this thread event to notify main thread the process has
