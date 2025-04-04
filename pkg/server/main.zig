@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 // first-party
-const model = @import("model.zig");
 const store = @import("store.zig");
 
 // testing related import processing
@@ -12,13 +11,6 @@ test {
     // tests that are not otherwise reachable by following those is to
     // explicitly use the related struct which contains it
     std.testing.refAllDeclsRecursive(@This());
-
-    // XXX: see above
-    _ = model.User;
-    _ = model.Checklist;
-
-    // XXX: see above
-    _ = store.DataStore;
 }
 
 // Signal handler sets this thread event to notify main thread the process has
@@ -40,10 +32,13 @@ pub fn signal_handle(signal: c_int) callconv(.C) void {
 
 // XXX
 fn processClient(
-    // allocator: std.mem.Allocator,
-    // data: *store.MemoryDataStore,
+    allocator: std.mem.Allocator,
+    datastore: *store.DataStore,
     connection: *std.net.Server.Connection,
 ) !void {
+    _ = allocator; // PLACEHOLDER
+    _ = datastore; // PLACEHOLDER
+
     var buffer: [65535]u8 = undefined; // XXX: allocate fixed buffer
     var client = std.http.Server.init(connection.*, &buffer);
 
@@ -96,11 +91,10 @@ pub fn main() !void {
         std.debug.assert(result == .ok);
     };
 
-    // TODO: initialize data store
-    _ = allocator;
-    // var user: models.User = undefined;
-    // try user.init(allocator, 0, &.{ .display_name = "TEST" });
-    // defer user.deinit(allocator);
+    // initialize the data store
+    var datastore: store.DataStore = .{};
+    try datastore.init("./checklist.db");
+    defer datastore.deinit();
 
     // install signal handlers
     const signal_action = std.posix.Sigaction{
@@ -138,7 +132,7 @@ pub fn main() !void {
             else => return err,
         };
 
-        try processClient(&client_connection);
+        try processClient(allocator, &datastore, &client_connection);
     }
 
     // XXX: adjust exit status based on signal?

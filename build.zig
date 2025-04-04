@@ -74,9 +74,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = server_root_source_file,
         .target = local_target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
     server_executable.root_module.addOptions("build", build_options);
+    server_executable.linkSystemLibrary("sqlite3");
     b.installArtifact(server_executable);
 
     // server unit tests
@@ -84,9 +86,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = server_root_source_file,
         .target = local_target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
     server_unit_tests.root_module.addOptions("build", build_options);
+    server_unit_tests.linkSystemLibrary("sqlite3");
     const run_server_unit_tests = b.addRunArtifact(server_unit_tests);
 
     // XXX
