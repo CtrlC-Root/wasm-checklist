@@ -1,4 +1,5 @@
 const std = @import("std");
+const model = @import("model.zig");
 
 const c = @cImport({
     @cInclude("sqlite3.h");
@@ -10,6 +11,9 @@ test {
     // tests that are not otherwise reachable by following those is to
     // explicitly use the related struct which contains it
     std.testing.refAllDeclsRecursive(@This());
+
+    // TODO
+    _ = model.Field;
 }
 
 pub const DataStore = struct {
