@@ -219,6 +219,128 @@ pub const DataStore = struct {
         const last_id = c.sqlite3_last_insert_rowid(self.database);
         return @intCast(last_id);
     }
+
+    pub fn retrieve(
+        self: Self,
+        comptime Model: type,
+        allocator: std.mem.Allocator,
+        id: Model.IdFieldValue,
+    ) !Model {
+        // create an arena allocator for temporary data
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        // XXX
+        const sql: [:0]const u8 = blk: {
+            // create the insert sql
+            var buffer = std.ArrayList(u8).init(arena_allocator);
+            defer buffer.deinit(); // XXX: not required with arena
+
+            try buffer.appendSlice("SELECT ");
+
+            inline for (0.., std.meta.fields(Model.Data)) |index, field| {
+                if (index > 0) {
+                    try buffer.appendSlice(", ");
+                }
+
+                // XXX: hack for different field types in SQLite3
+                const definition_field_index = std.meta.fieldIndex(Model.Fields, field.name) orelse unreachable;
+                const definition_field = std.meta.fields(Model.Fields)[definition_field_index];
+
+                if (definition_field.type == model.TimestampField) {
+                    try buffer.appendSlice(try std.fmt.allocPrint(
+                        arena_allocator,
+                        "unixepoch({s}) AS {s}",
+                        .{field.name, field.name},
+                    ));
+                } else {
+                    try buffer.appendSlice(field.name);
+                }
+            }
+
+            try buffer.appendSlice(try std.fmt.allocPrint(
+                arena_allocator,
+                " FROM {s} WHERE {s} = :{s}",
+                .{Model.name, Model.idFieldName, Model.idFieldName},
+            ));
+
+            break :blk try arena_allocator.dupeZ(u8, buffer.items);
+        };
+
+        // XXX
+        // std.debug.print("SQL: {s}\n", .{ sql });
+
+        // create prepared statement
+        const statement = blk: {
+            var statement: ?*c.sqlite3_stmt = undefined;
+            const result = c.sqlite3_prepare_v2(self.database, sql, @intCast(sql.len + 1), &statement, null);
+            if (result != c.SQLITE_OK) {
+                std.debug.print("failed to prepare statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
+                return error.PrepareStatement;
+            }
+
+            break :blk statement.?;
+        };
+
+        defer {
+            const result = c.sqlite3_finalize(statement);
+            std.debug.assert(result == c.SQLITE_OK);
+        }
+
+        // bind data to prepared statement placeholders
+        // XXX: model id may not always be an integer
+        const bind_result = c.sqlite3_bind_int64(statement, 1, @intCast(id));
+        std.debug.assert(bind_result == c.SQLITE_OK);
+
+        // execute the statement
+        const first_step_result = c.sqlite3_step(statement);
+        std.debug.assert(first_step_result == c.SQLITE_ROW);
+
+        // XXX
+        var instance: Model = .{};
+        inline for (0.., std.meta.fields(Model.Data)) |index, field| {
+            switch (@typeInfo(field.type)) {
+                .optional => {
+                    // XXX: would require recursion or nesting, skip for now
+                    unreachable;
+
+                    // std.debug.assert(c.sqlite3_column_type(statement, index) == SQLITE_NULL);
+                },
+                .bool => {
+                    std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
+                    @field(instance.data, field.name) = (c.sqlite3_column_int64(statement, index) != 0);
+                },
+                .int => |_| {
+                    // XXX: consider bits and signedness
+                    std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
+                    @field(instance.data, field.name) = @intCast(c.sqlite3_column_int64(statement, index));
+                },
+                .pointer => |pointer| {
+                    switch (@typeInfo(pointer.child)) {
+                        .int => |child_int| {
+                            std.debug.assert(child_int.signedness == .unsigned);
+                            std.debug.assert(child_int.bits == 8);
+
+                            std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_TEXT);
+                            const value_base = c.sqlite3_column_text(statement, index);
+                            @field(instance.data, field.name) = try allocator.dupe(u8, std.mem.span(value_base));
+                        },
+                        else => {
+                            // std.debug.print("{}\n", .{ pointer.child });
+                            @panic("field pointer type not supported");
+                        },
+                    }
+                },
+                else => {
+                    std.debug.print("{}\n", .{ field.type.Value });
+                    @panic("field type not supported");
+                },
+            }
+        }
+
+        return instance;
+    }
 };
 
 test "datastore" {
@@ -226,21 +348,39 @@ test "datastore" {
     try datastore.init(":memory:");
     defer datastore.deinit();
 
+    // create a user from partial data and retrieve it
     const john_user_id = try datastore.create(model.User, std.testing.allocator, &.{
         .display_name = .{ .some = "John Doe" },
     });
 
+    const john = try datastore.retrieve(model.User, std.testing.allocator, john_user_id);
+    defer std.testing.allocator.free(john.data.display_name); // XXX: wrap in model?
+
+    try std.testing.expectEqual(john_user_id, john.data.id);
+    try std.testing.expectEqualSlices(u8, "John Doe", john.data.display_name);
+
+    // create a second user and verify unique ids
     const jane_user_id = try datastore.create(model.User, std.testing.allocator, &.{
         .display_name = .{ .some = "Jane Doe" },
     });
 
     try std.testing.expect(john_user_id != jane_user_id);
 
+    // create a checklist from partial data and retrieve it
     const john_checklist_id = try datastore.create(model.Checklist, std.testing.allocator, &.{
         .title = .{ .some = "John's Shopping List" },
         .created_by_user_id = .{ .some = john_user_id },
     });
 
+    const john_checklist = try datastore.retrieve(model.Checklist, std.testing.allocator, john_checklist_id);
+    defer std.testing.allocator.free(john_checklist.data.title);
+
+    try std.testing.expectEqual(john_checklist_id, john_checklist.data.id);
+    try std.testing.expectEqualSlices(u8, "John's Shopping List", john_checklist.data.title);
+    try std.testing.expectEqual(john_user_id, john_checklist.data.created_by_user_id);
+    try std.testing.expect(john_checklist.data.created_on_timestamp != 0); // XXX: better way to validate this?
+
+    // create a second checklist and verify unique ids
     const jane_checklist_id = try datastore.create(model.Checklist, std.testing.allocator, &.{
         .title = .{ .some = "Jane's Shopping List" },
         .created_by_user_id = .{ .some = jane_user_id },
@@ -248,17 +388,29 @@ test "datastore" {
 
     try std.testing.expect(john_checklist_id != jane_checklist_id);
 
-    const hotdots_item_id = try datastore.create(model.Item, std.testing.allocator, &.{
+    // create an item from partial data and retrieve it
+    const hotdogs_item_id = try datastore.create(model.Item, std.testing.allocator, &.{
         .parent_checklist_id = .{ .some = john_checklist_id },
         .title = .{ .some = "Hotdogs" },
         .created_by_user_id = .{ .some = john_user_id },
     });
 
+    const hotdogs_item = try datastore.retrieve(model.Item, std.testing.allocator, hotdogs_item_id);
+    defer std.testing.allocator.free(hotdogs_item.data.title);
+
+    try std.testing.expectEqual(hotdogs_item_id, hotdogs_item.data.id);
+    try std.testing.expectEqual(john_checklist_id, hotdogs_item.data.parent_checklist_id);
+    try std.testing.expectEqualSlices(u8, "Hotdogs", hotdogs_item.data.title);
+    try std.testing.expectEqual(false, hotdogs_item.data.complete);
+    try std.testing.expectEqual(john_user_id, hotdogs_item.data.created_by_user_id);
+    try std.testing.expect(hotdogs_item.data.created_on_timestamp != 0); // XXX: better way to validate this?
+
+    // create a second item and verify unique ids
     const icedtea_item_id = try datastore.create(model.Item, std.testing.allocator, &.{
         .parent_checklist_id = .{ .some = jane_checklist_id },
         .title = .{ .some = "Iced Tea" },
         .created_by_user_id = .{ .some = jane_user_id },
     });
 
-    try std.testing.expect(hotdots_item_id != icedtea_item_id);
+    try std.testing.expect(hotdogs_item_id != icedtea_item_id);
 }

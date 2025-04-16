@@ -146,7 +146,7 @@ test "general model usage" {
 
 pub const User = Model("user", "id", struct {
     const Self = @This();
-    const Id = Field(u64);
+    pub const Id = Field(u64);
 
     id: Self.Id = undefined,
     display_name: StringField = undefined,
@@ -154,7 +154,7 @@ pub const User = Model("user", "id", struct {
 
 pub const Checklist = Model("checklist", "id", struct {
     const Self = @This();
-    const Id = Field(u64);
+    pub const Id = Field(u64);
 
     id: Self.Id = undefined,
     title: StringField = undefined,
@@ -164,7 +164,7 @@ pub const Checklist = Model("checklist", "id", struct {
 
 pub const Item = Model("item", "id", struct {
     const Self = @This();
-    const Id = Field(u64);
+    pub const Id = Field(u64);
 
     id: Self.Id = undefined,
     parent_checklist_id: Checklist.Fields.Id = undefined,
