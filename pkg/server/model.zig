@@ -5,12 +5,7 @@ pub fn Field(comptime FieldValue: type) type {
         const Self = @This();
         pub const Value = FieldValue;
 
-        pub const OptionalValueType = enum(u8) {
-            none,
-            some,
-        };
-
-        pub const OptionalValue = union(Self.OptionalValueType) {
+        pub const OptionalValue = union(enum) {
             none,
             some: Value,
         };
