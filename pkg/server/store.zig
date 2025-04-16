@@ -295,7 +295,10 @@ pub const DataStore = struct {
 
         // execute the statement
         const first_step_result = c.sqlite3_step(statement);
-        std.debug.assert(first_step_result == c.SQLITE_ROW);
+        if (first_step_result != c.SQLITE_ROW) {
+            std.debug.print("failed to retrieve statement row: {s}\n", .{ c.sqlite3_errmsg(self.database) });
+            return error.InstanceNotFound;
+        }
 
         // XXX
         var data: Model.Data = undefined;
@@ -339,9 +342,73 @@ pub const DataStore = struct {
             }
         }
 
+        // XXX
         var instance: Model = .{};
         try instance.init(allocator, &data);
+        errdefer instance.deinit(allocator);
+
+        // XXX
+        const second_step_result = c.sqlite3_step(statement);
+        std.debug.assert(second_step_result == c.SQLITE_DONE);
+
+        // XXX: is this necessary?
+        _ = c.sqlite3_reset(statement);
+
+        // XXX
         return instance;
+    }
+
+    pub fn delete(
+        self: Self,
+        comptime Model: type,
+        allocator: std.mem.Allocator,
+        id: Model.IdFieldValue,
+    ) !void {
+        // create an arena allocator for temporary data
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        // XXX
+        const sql: [:0]const u8 = blk: {
+            // create the insert sql
+            var buffer = std.ArrayList(u8).init(arena_allocator);
+            defer buffer.deinit(); // XXX: not required with arena
+
+            try buffer.appendSlice(try std.fmt.allocPrint(
+                arena_allocator,
+                "DELETE FROM {s} WHERE {s} = :{s}",
+                .{Model.name, Model.idFieldName, Model.idFieldName},
+            ));
+
+            break :blk try arena_allocator.dupeZ(u8, buffer.items);
+        };
+
+        // create prepared statement
+        const statement = blk: {
+            var statement: ?*c.sqlite3_stmt = undefined;
+            const result = c.sqlite3_prepare_v2(self.database, sql, @intCast(sql.len + 1), &statement, null);
+            if (result != c.SQLITE_OK) {
+                std.debug.print("failed to prepare statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
+                return error.PrepareStatement;
+            }
+
+            break :blk statement.?;
+        };
+
+        defer {
+            const result = c.sqlite3_finalize(statement);
+            std.debug.assert(result == c.SQLITE_OK);
+        }
+
+        // bind data to prepared statement placeholders
+        // XXX: model id may not always be an integer
+        const bind_result = c.sqlite3_bind_int64(statement, 1, @intCast(id));
+        std.debug.assert(bind_result == c.SQLITE_OK);
+
+        // execute the statement
+        const first_step_result = c.sqlite3_step(statement);
+        std.debug.assert(first_step_result == c.SQLITE_DONE);
     }
 };
 
@@ -415,4 +482,11 @@ test "datastore" {
     });
 
     try std.testing.expect(hotdogs_item_id != icedtea_item_id);
+
+    // delete a checklist
+    try datastore.delete(model.Checklist, std.testing.allocator, jane_checklist_id);
+    try std.testing.expectEqual(
+        error.InstanceNotFound,
+        datastore.retrieve(model.Checklist, std.testing.allocator, jane_checklist_id),
+    );
 }
