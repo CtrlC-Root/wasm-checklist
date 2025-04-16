@@ -14,6 +14,26 @@ pub fn Field(comptime FieldValue: type) type {
             none,
             some: Value,
         };
+
+        pub fn init(allocator: std.mem.Allocator, source: Self.Value) !Self.Value {
+            switch (@typeInfo(Self.Value)) {
+                .pointer => |pointer| {
+                    return try allocator.dupe(pointer.child, source);
+                },
+                else => {
+                    return source;
+                }
+            }
+        }
+
+        pub fn deinit(allocator: std.mem.Allocator, target: Self.Value) void {
+            switch (@typeInfo(Self.Value)) {
+                .pointer => |_| {
+                    allocator.free(target);
+                },
+                else => {},
+            }
+        }
     };
 }
 
@@ -109,6 +129,34 @@ pub fn Model(
         // instance data
         data: Data = undefined,
 
+        pub fn init(self: *Self, allocator: std.mem.Allocator, data: *const Self.Data) !void {
+            const fields = std.meta.fields(Self.Fields);
+            var initialized = std.StaticBitSet(fields.len).initEmpty();
+
+            errdefer {
+                inline for (0.., fields) |index, field| {
+                    if (initialized.isSet(index)) {
+                        field.type.deinit(allocator, @field(self.data, field.name));
+                    }
+                }
+            }
+
+            inline for (0.., fields) |index, field| {
+                @field(self.data, field.name) = try field.type.init(
+                    allocator,
+                    @field(data, field.name),
+                );
+
+                initialized.set(index);
+            }
+        }
+
+        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+            inline for (std.meta.fields(Self.Fields)) |field| {
+                field.type.deinit(allocator, @field(self.data, field.name));
+            }
+        }
+
         pub fn getId(self: Self) Self.IdFieldValue {
             return @field(self.data, Self.idFieldName);
         }
@@ -123,8 +171,8 @@ test "general model usage" {
         model_year: Field(u16),
     });
 
-    // model instance
-    const sample_vehicle: Vehicle = .{
+    // model instance with data on the stack
+    const stack_vehicle: Vehicle = .{
         .data = .{
             .vin = "ABCD1234",
             .manufacturer = "Yamaha",
@@ -134,7 +182,18 @@ test "general model usage" {
     };
 
     try std.testing.expectEqualSlices(u8, Vehicle.idFieldName, "vin");
-    try std.testing.expectEqualSlices(u8, sample_vehicle.getId(), "ABCD1234");
+    try std.testing.expectEqualSlices(u8, stack_vehicle.getId(), "ABCD1234");
+
+    // model instance with data on the heap
+    var heap_vehicle: Vehicle = undefined;
+    try heap_vehicle.init(std.testing.allocator, &.{
+        .vin = "EFGH5678",
+        .manufacturer = stack_vehicle.data.manufacturer,
+        .model = "XSR900",
+        .model_year = stack_vehicle.data.model_year,
+    });
+
+    defer heap_vehicle.deinit(std.testing.allocator);
 
     // model data
     const partial_data: Vehicle.PartialData = .{

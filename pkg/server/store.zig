@@ -298,7 +298,7 @@ pub const DataStore = struct {
         std.debug.assert(first_step_result == c.SQLITE_ROW);
 
         // XXX
-        var instance: Model = .{};
+        var data: Model.Data = undefined;
         inline for (0.., std.meta.fields(Model.Data)) |index, field| {
             switch (@typeInfo(field.type)) {
                 .optional => {
@@ -309,12 +309,12 @@ pub const DataStore = struct {
                 },
                 .bool => {
                     std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
-                    @field(instance.data, field.name) = (c.sqlite3_column_int64(statement, index) != 0);
+                    @field(data, field.name) = (c.sqlite3_column_int(statement, index) != 0);
                 },
                 .int => |_| {
                     // XXX: consider bits and signedness
                     std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
-                    @field(instance.data, field.name) = @intCast(c.sqlite3_column_int64(statement, index));
+                    @field(data, field.name) = @intCast(c.sqlite3_column_int64(statement, index));
                 },
                 .pointer => |pointer| {
                     switch (@typeInfo(pointer.child)) {
@@ -324,7 +324,7 @@ pub const DataStore = struct {
 
                             std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_TEXT);
                             const value_base = c.sqlite3_column_text(statement, index);
-                            @field(instance.data, field.name) = try allocator.dupe(u8, std.mem.span(value_base));
+                            @field(data, field.name) = std.mem.span(value_base);
                         },
                         else => {
                             // std.debug.print("{}\n", .{ pointer.child });
@@ -339,6 +339,8 @@ pub const DataStore = struct {
             }
         }
 
+        var instance: Model = .{};
+        try instance.init(allocator, &data);
         return instance;
     }
 };
@@ -354,7 +356,7 @@ test "datastore" {
     });
 
     const john = try datastore.retrieve(model.User, std.testing.allocator, john_user_id);
-    defer std.testing.allocator.free(john.data.display_name); // XXX: wrap in model?
+    defer john.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(john_user_id, john.data.id);
     try std.testing.expectEqualSlices(u8, "John Doe", john.data.display_name);
@@ -373,7 +375,7 @@ test "datastore" {
     });
 
     const john_checklist = try datastore.retrieve(model.Checklist, std.testing.allocator, john_checklist_id);
-    defer std.testing.allocator.free(john_checklist.data.title);
+    defer john_checklist.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(john_checklist_id, john_checklist.data.id);
     try std.testing.expectEqualSlices(u8, "John's Shopping List", john_checklist.data.title);
@@ -396,7 +398,7 @@ test "datastore" {
     });
 
     const hotdogs_item = try datastore.retrieve(model.Item, std.testing.allocator, hotdogs_item_id);
-    defer std.testing.allocator.free(hotdogs_item.data.title);
+    defer hotdogs_item.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(hotdogs_item_id, hotdogs_item.data.id);
     try std.testing.expectEqual(john_checklist_id, hotdogs_item.data.parent_checklist_id);
