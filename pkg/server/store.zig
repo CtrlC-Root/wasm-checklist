@@ -11,9 +11,6 @@ test {
     // tests that are not otherwise reachable by following those is to
     // explicitly use the related struct which contains it
     std.testing.refAllDeclsRecursive(@This());
-
-    // TODO
-    _ = model.Field;
 }
 
 pub const DataStore = struct {
@@ -134,7 +131,7 @@ pub const DataStore = struct {
         };
 
         // XXX: use logging for this
-        std.debug.print("SQL: {s}\n", .{ sql });
+        // std.debug.print("SQL: {s}\n", .{ sql });
 
         // create prepared statement
         const statement = blk: {
