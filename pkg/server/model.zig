@@ -10,6 +10,7 @@ pub fn Field(comptime FieldValue: type) type {
             some: Value,
         };
 
+        // allocate or copy the field value
         pub fn init(allocator: std.mem.Allocator, source: Self.Value) !Self.Value {
             switch (@typeInfo(Self.Value)) {
                 .pointer => |pointer| {
@@ -21,6 +22,7 @@ pub fn Field(comptime FieldValue: type) type {
             }
         }
 
+        // free the field value if necessary
         pub fn deinit(allocator: std.mem.Allocator, target: Self.Value) void {
             switch (@typeInfo(Self.Value)) {
                 .pointer => |_| {

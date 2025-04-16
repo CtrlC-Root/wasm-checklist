@@ -10,14 +10,14 @@ CREATE TABLE IF NOT EXISTS checklist (
   id INTEGER PRIMARY KEY,
   title TEXT NOT NULL,
   created_by_user_id INTEGER NOT NULL,
-  created_on_timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, -- ISO8601
+  created_on_timestamp INTEGER NOT NULL DEFAULT (unixepoch()),
 
   CONSTRAINT checklist_created_by_user_id_foreign_key
     FOREIGN KEY (created_by_user_id) REFERENCES user (id)
     ON DELETE RESTRICT,
 
-  CONSTRAINT checklist_created_on_timestamp_iso8601_format
-    CHECK (datetime(created_on_timestamp) = created_on_timestamp)
+  CONSTRAINT checklist_created_on_timestamp_unixepoch_format
+    CHECK (unixepoch(created_on_timestamp) = created_on_timestamp)
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS item (
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS item (
   title TEXT NOT NULL,
   complete INTEGER NOT NULL DEFAULT FALSE,
   created_by_user_id INTEGER NOT NULL,
-  created_on_timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, -- ISO8601
+  created_on_timestamp INTEGER NOT NULL DEFAULT (unixepoch()),
 
   CONSTRAINT item_parent_checklist_id_foreign_key
     FOREIGN KEY (parent_checklist_id) REFERENCES checklist (id)
@@ -36,6 +36,6 @@ CREATE TABLE IF NOT EXISTS item (
     FOREIGN KEY (created_by_user_id) REFERENCES user (id)
     ON DELETE RESTRICT,
 
-  CONSTRAINT item_created_on_timestamp_iso8601_format
-    CHECK (datetime(created_on_timestamp) = created_on_timestamp)
+  CONSTRAINT item_created_on_timestamp_unixepoch_format
+    CHECK (unixepoch(created_on_timestamp) = created_on_timestamp)
 ) STRICT;

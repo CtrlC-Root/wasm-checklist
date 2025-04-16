@@ -130,9 +130,6 @@ pub const DataStore = struct {
             break :blk try arena_allocator.dupeZ(u8, buffer.items);
         };
 
-        // XXX: use logging for this
-        // std.debug.print("SQL: {s}\n", .{ sql });
-
         // create prepared statement
         const statement = blk: {
             var statement: ?*c.sqlite3_stmt = undefined;
@@ -212,9 +209,6 @@ pub const DataStore = struct {
             return error.ExecuteStatement;
         }
 
-        // XXX: is this necessary?
-        _ = c.sqlite3_reset(statement);
-
         // XXX: the rowid may not be the id column so you'd need to SELECT it
         const last_id = c.sqlite3_last_insert_rowid(self.database);
         return @intCast(last_id);
@@ -244,19 +238,7 @@ pub const DataStore = struct {
                     try buffer.appendSlice(", ");
                 }
 
-                // XXX: hack for different field types in SQLite3
-                const definition_field_index = std.meta.fieldIndex(Model.Fields, field.name) orelse unreachable;
-                const definition_field = std.meta.fields(Model.Fields)[definition_field_index];
-
-                if (definition_field.type == model.TimestampField) {
-                    try buffer.appendSlice(try std.fmt.allocPrint(
-                        arena_allocator,
-                        "unixepoch({s}) AS {s}",
-                        .{field.name, field.name},
-                    ));
-                } else {
-                    try buffer.appendSlice(field.name);
-                }
+                try buffer.appendSlice(field.name);
             }
 
             try buffer.appendSlice(try std.fmt.allocPrint(
@@ -267,9 +249,6 @@ pub const DataStore = struct {
 
             break :blk try arena_allocator.dupeZ(u8, buffer.items);
         };
-
-        // XXX
-        // std.debug.print("SQL: {s}\n", .{ sql });
 
         // create prepared statement
         const statement = blk: {
@@ -351,9 +330,6 @@ pub const DataStore = struct {
         const second_step_result = c.sqlite3_step(statement);
         std.debug.assert(second_step_result == c.SQLITE_DONE);
 
-        // XXX: is this necessary?
-        _ = c.sqlite3_reset(statement);
-
         // XXX
         return instance;
     }
@@ -419,9 +395,6 @@ pub const DataStore = struct {
 
             break :blk try arena_allocator.dupeZ(u8, buffer.items);
         };
-
-        // XXX
-        // std.debug.print("SQL: {s}\n", .{ sql });
 
         // create prepared statement
         const statement = blk: {
