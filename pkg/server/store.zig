@@ -65,7 +65,7 @@ pub const DataStore = struct {
         comptime Model: type,
         allocator: std.mem.Allocator,
         data: *const Model.PartialData,
-    ) !void {
+    ) !Model.IdFieldValue {
         // create an arena allocator for temporary data
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
@@ -212,10 +212,12 @@ pub const DataStore = struct {
             return error.ExecuteStatement;
         }
 
-        // TODO: retrieve last row ID and use it to look up model id or data?
-
         // XXX: is this necessary?
         _ = c.sqlite3_reset(statement);
+
+        // XXX: the rowid may not be the id column so you'd need to SELECT it
+        const last_id = c.sqlite3_last_insert_rowid(self.database);
+        return @intCast(last_id);
     }
 };
 
@@ -224,33 +226,39 @@ test "datastore" {
     try datastore.init(":memory:");
     defer datastore.deinit();
 
-    try datastore.create(model.User, std.testing.allocator, &.{
+    const john_user_id = try datastore.create(model.User, std.testing.allocator, &.{
         .display_name = .{ .some = "John Doe" },
     });
 
-    try datastore.create(model.User, std.testing.allocator, &.{
+    const jane_user_id = try datastore.create(model.User, std.testing.allocator, &.{
         .display_name = .{ .some = "Jane Doe" },
     });
 
-    try datastore.create(model.Checklist, std.testing.allocator, &.{
+    try std.testing.expect(john_user_id != jane_user_id);
+
+    const john_checklist_id = try datastore.create(model.Checklist, std.testing.allocator, &.{
         .title = .{ .some = "John's Shopping List" },
-        .created_by_user_id = .{ .some = 1 }, // TODO: correlate id
+        .created_by_user_id = .{ .some = john_user_id },
     });
 
-    try datastore.create(model.Item, std.testing.allocator, &.{
-        .parent_checklist_id = .{ .some = 1 }, // TODO: correlate id
-        .title = .{ .some = "Hotdogs" },
-        .created_by_user_id = .{ .some = 1 }, // TODO: correlate id
-    });
-
-    try datastore.create(model.Checklist, std.testing.allocator, &.{
+    const jane_checklist_id = try datastore.create(model.Checklist, std.testing.allocator, &.{
         .title = .{ .some = "Jane's Shopping List" },
-        .created_by_user_id = .{ .some = 2 }, // TODO: correlate id
+        .created_by_user_id = .{ .some = jane_user_id },
     });
 
-    try datastore.create(model.Item, std.testing.allocator, &.{
-        .parent_checklist_id = .{ .some = 2 }, // TODO: correlate id
-        .title = .{ .some = "Iced Tea" },
-        .created_by_user_id = .{ .some = 2 }, // TODO: correlate id
+    try std.testing.expect(john_checklist_id != jane_checklist_id);
+
+    const hotdots_item_id = try datastore.create(model.Item, std.testing.allocator, &.{
+        .parent_checklist_id = .{ .some = john_checklist_id },
+        .title = .{ .some = "Hotdogs" },
+        .created_by_user_id = .{ .some = john_user_id },
     });
+
+    const icedtea_item_id = try datastore.create(model.Item, std.testing.allocator, &.{
+        .parent_checklist_id = .{ .some = jane_checklist_id },
+        .title = .{ .some = "Iced Tea" },
+        .created_by_user_id = .{ .some = jane_user_id },
+    });
+
+    try std.testing.expect(hotdots_item_id != icedtea_item_id);
 }
