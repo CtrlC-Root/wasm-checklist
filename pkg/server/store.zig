@@ -60,117 +60,153 @@ pub const DataStore = struct {
         return;
     }
 
-    pub fn create(self: Self, comptime Model: type, allocator: std.mem.Allocator, instance: *const Model) !void {
+    pub fn create(
+        self: Self,
+        comptime Model: type,
+        allocator: std.mem.Allocator,
+        data: *const Model.PartialData,
+    ) !void {
+        // create an arena allocator for temporary data
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
-
         const arena_allocator = arena.allocator();
 
-        // XXX: create sql
-        const insert_sql: [:0]const u8 = blk: {
-            var buffer = std.ArrayList(u8).init(allocator);
-            defer buffer.deinit();
+        // determine the names of fields with values in the provided data
+        const field_names = blk: {
+            const partial_data_fields = std.meta.fields(Model.PartialData);
+            var field_names = try std.BoundedArray([]const u8, partial_data_fields.len).init(0);
 
-            const insert_into_fragment = try std.fmt.allocPrint(
+            inline for (partial_data_fields) |field| {
+                switch (@field(data, field.name)) {
+                    .some => |_| {
+                        field_names.appendAssumeCapacity(field.name);
+                    },
+                    .none => {},
+                }
+            }
+
+            break :blk field_names;
+        };
+
+        // create the insert statement sql
+        const sql: [:0]const u8 = blk: {
+            // create the insert sql
+            var buffer = std.ArrayList(u8).init(arena_allocator);
+            defer buffer.deinit(); // XXX: not required with arena
+
+            try buffer.appendSlice(try std.fmt.allocPrint(
                 arena_allocator,
                 "INSERT INTO {s} (",
                 .{Model.name},
-            );
+            ));
 
-            try buffer.appendSlice(insert_into_fragment);
-
-            inline for (0.., std.meta.fields(Model.Definition)) |index, field| {
+            for (0.., field_names.slice()) |index, field_name| {
                 if (index > 0) {
                     try buffer.appendSlice(", ");
                 }
 
-                try buffer.appendSlice(field.name);
+                try buffer.appendSlice(field_name);
             }
 
-            try buffer.appendSlice(") VALUES (");
+            try buffer.appendSlice(try std.fmt.allocPrint(
+                arena_allocator,
+                ") VALUES (",
+                .{},
+            ));
 
-            // https://sqlite.org/lang_expr.html#parameters
-            inline for (0.., std.meta.fields(Model.Definition)) |index, field| {
+            for (0.., field_names.slice()) |index, field_name| {
                 if (index > 0) {
                     try buffer.appendSlice(", ");
                 }
 
-                const parameter = try std.fmt.allocPrint(arena_allocator, ":{s}", .{field.name});
-                try buffer.appendSlice(parameter);
+                try buffer.appendSlice(try std.fmt.allocPrint(
+                    arena_allocator,
+                    ":{s}",
+                    .{field_name},
+                ));
             }
-            
+
             try buffer.appendSlice(")");
-
-            const sql = try allocator.dupeZ(u8, buffer.items);
-            break :blk sql;
+            break :blk try arena_allocator.dupeZ(u8, buffer.items);
         };
 
-        defer allocator.free(insert_sql);
-        // std.debug.print("{s}\n", .{ insert_sql });
+        // XXX: use logging for this
+        std.debug.print("SQL: {s}\n", .{ sql });
 
-        // XXX: create prepared statement
-        const insert_statement = insert_statement: {
+        // create prepared statement
+        const statement = blk: {
             var statement: ?*c.sqlite3_stmt = undefined;
-            const result = c.sqlite3_prepare_v2(self.database, insert_sql, @intCast(insert_sql.len + 1), &statement, null);
+            const result = c.sqlite3_prepare_v2(self.database, sql, @intCast(sql.len + 1), &statement, null);
             if (result != c.SQLITE_OK) {
                 std.debug.print("failed to prepare statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
                 return error.PrepareStatement;
             }
 
-            break :insert_statement statement.?;
+            break :blk statement.?;
         };
 
         defer {
-            const result = c.sqlite3_finalize(insert_statement);
+            const result = c.sqlite3_finalize(statement);
             std.debug.assert(result == c.SQLITE_OK);
         }
 
-        // XXX
-        // https://sqlite.org/c3ref/bind_blob.html
-        inline for (std.meta.fields(Model.Definition)) |field| {
-            const parameter = try std.fmt.allocPrintZ(arena_allocator, ":{s}", .{field.name});
-            const parameter_index = c.sqlite3_bind_parameter_index(insert_statement, parameter);
-            std.debug.assert(parameter_index != 0);
+        // bind data to prepared statement placeholders
+        inline for (std.meta.fields(Model.Fields)) |field| {
+            switch (@field(data, field.name)) {
+                .some => |value| {
+                    const parameter_index = c.sqlite3_bind_parameter_index(
+                        statement,
+                        try std.fmt.allocPrintZ(arena_allocator, ":{s}", .{field.name}),
+                    );
 
-            const data = @field(instance.data, field.name);
-            if (data) |data_value| {
-                switch (@typeInfo(field.type.Value)) {
-                    .int => |_| {
-                        // XXX: consider bits and signedness
-                        const result = c.sqlite3_bind_int64(insert_statement, parameter_index, @intCast(data_value));
-                        std.debug.assert(result == c.SQLITE_OK);
-                    },
-                    .pointer => |pointer| {
-                        switch (@typeInfo(pointer.child)) {
-                            .int => |child_int| {
-                                std.debug.assert(child_int.signedness == .unsigned);
-                                std.debug.assert(child_int.bits == 8);
+                    std.debug.assert(parameter_index != 0);
+                    switch (@typeInfo(field.type.Value)) {
+                        .optional => {
+                            // XXX: would require recursion or nesting, skip for now
+                            unreachable;
 
-                                const result = c.sqlite3_bind_text(
-                                    insert_statement,
-                                    parameter_index,
-                                    &data_value[0],
-                                    @intCast(data_value.len),
-                                    c.SQLITE_STATIC,
-                                );
+                            // const result = c.sqlite3_bind_null(statement, parameter_index);
+                            // std.debug.assert(result == c.SQLITE_OK);
+                        },
+                        .int => |_| {
+                            // XXX: consider bits and signedness
+                            const result = c.sqlite3_bind_int64(statement, parameter_index, @intCast(value));
+                            std.debug.assert(result == c.SQLITE_OK);
+                        },
+                        .pointer => |pointer| {
+                            switch (@typeInfo(pointer.child)) {
+                                .int => |child_int| {
+                                    std.debug.assert(child_int.signedness == .unsigned);
+                                    std.debug.assert(child_int.bits == 8);
 
-                                std.debug.assert(result == c.SQLITE_OK);
-                            },
-                            else => @panic("field type not supported"),
-                        }
-                    },
-                    else => {
-                        std.debug.print("{}\n", .{ @typeInfo(field.type) });
-                        @panic("field type not supported");
-                    },
-                }
-            } else {
-                const result = c.sqlite3_bind_null(insert_statement, parameter_index);
-                std.debug.assert(result == c.SQLITE_OK);
+                                    const result = c.sqlite3_bind_text(
+                                        statement,
+                                        parameter_index,
+                                        &value[0],
+                                        @intCast(value.len),
+                                        c.SQLITE_STATIC,
+                                    );
+
+                                    std.debug.assert(result == c.SQLITE_OK);
+                                },
+                                else => {
+                                    // std.debug.print("{}\n", .{ pointer.child });
+                                    @panic("field pointer type not supported");
+                                },
+                            }
+                        },
+                        else => {
+                            std.debug.print("{}\n", .{ field.type.Value });
+                            @panic("field type not supported");
+                        },
+                    }
+                },
+                .none => {},
             }
         }
 
-        const result = c.sqlite3_step(insert_statement);
+        // execute the prepared statement
+        const result = c.sqlite3_step(statement);
         if (result != c.SQLITE_DONE) {
             std.debug.print("failed to step statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
             return error.ExecuteStatement;
@@ -178,7 +214,8 @@ pub const DataStore = struct {
 
         // TODO: retrieve last row ID and return it or update the model
 
-        _ = c.sqlite3_reset(insert_statement);
+        // XXX: is this necessary?
+        _ = c.sqlite3_reset(statement);
     }
 };
 
@@ -188,16 +225,10 @@ test "datastore" {
     defer datastore.deinit();
 
     try datastore.create(model.User, std.testing.allocator, &.{
-        .data = .{
-            .id = null,
-            .display_name = "John Doe",
-        },
+        .display_name = .{ .some = "John Doe" },
     });
 
     try datastore.create(model.User, std.testing.allocator, &.{
-        .data = .{
-            .id = null,
-            .display_name = "Jane Doe",
-        },
+        .display_name = .{ .some = "Jane Doe" },
     });
 }
