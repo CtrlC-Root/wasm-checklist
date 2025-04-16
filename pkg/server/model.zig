@@ -97,8 +97,10 @@ pub fn Model(
 
         // model definition
         pub const name = modelName;
-        pub const idFieldName = modelIdFieldName;
         pub const Fields = ModelFields;
+
+        pub const idFieldName = definition_id_field.name;
+        pub const IdFieldValue = definition_id_field.type.Value;
 
         // computed based on model definition
         pub const Data = data_type;
@@ -107,14 +109,14 @@ pub fn Model(
         // instance data
         data: Data = undefined,
 
-        pub fn getId(self: Self) definition_id_field.type.Value {
-            return @field(self.data, definition_id_field.name);
+        pub fn getId(self: Self) Self.IdFieldValue {
+            return @field(self.data, Self.idFieldName);
         }
     };
 }
 
 test "general model usage" {
-    const Vehicle = Model("car", "vin", struct {
+    const Vehicle = Model("vehicle", "vin", struct {
         vin: StringField,
         manufacturer: StringField,
         model: StringField,
@@ -122,7 +124,7 @@ test "general model usage" {
     });
 
     // model instance
-    const sample_car: Vehicle = .{
+    const sample_vehicle: Vehicle = .{
         .data = .{
             .vin = "ABCD1234",
             .manufacturer = "Yamaha",
@@ -132,7 +134,7 @@ test "general model usage" {
     };
 
     try std.testing.expectEqualSlices(u8, Vehicle.idFieldName, "vin");
-    try std.testing.expectEqualSlices(u8, sample_car.getId(), "ABCD1234");
+    try std.testing.expectEqualSlices(u8, sample_vehicle.getId(), "ABCD1234");
 
     // model data
     const partial_data: Vehicle.PartialData = .{
@@ -164,7 +166,7 @@ pub const Item = Model("item", "id", struct {
     const Self = @This();
     const Id = Field(u64);
 
-    id: Self.IdField = undefined,
+    id: Self.Id = undefined,
     parent_checklist_id: Checklist.Fields.Id = undefined,
     title: StringField = undefined,
     complete: BooleanField = undefined,

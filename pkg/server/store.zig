@@ -39,6 +39,9 @@ pub const DataStore = struct {
             .database = database.?,
         };
 
+        // XXX: configure the database settings
+        try self.executeSql("PRAGMA foreign_keys = ON");
+
         // TODO: implement schema migrations
         try self.executeSql(Self.schema_sql);
     }
@@ -212,7 +215,7 @@ pub const DataStore = struct {
             return error.ExecuteStatement;
         }
 
-        // TODO: retrieve last row ID and return it or update the model
+        // TODO: retrieve last row ID and use it to look up model id or data?
 
         // XXX: is this necessary?
         _ = c.sqlite3_reset(statement);
@@ -230,5 +233,27 @@ test "datastore" {
 
     try datastore.create(model.User, std.testing.allocator, &.{
         .display_name = .{ .some = "Jane Doe" },
+    });
+
+    try datastore.create(model.Checklist, std.testing.allocator, &.{
+        .title = .{ .some = "John's Shopping List" },
+        .created_by_user_id = .{ .some = 1 }, // TODO: correlate id
+    });
+
+    try datastore.create(model.Item, std.testing.allocator, &.{
+        .parent_checklist_id = .{ .some = 1 }, // TODO: correlate id
+        .title = .{ .some = "Hotdogs" },
+        .created_by_user_id = .{ .some = 1 }, // TODO: correlate id
+    });
+
+    try datastore.create(model.Checklist, std.testing.allocator, &.{
+        .title = .{ .some = "Jane's Shopping List" },
+        .created_by_user_id = .{ .some = 2 }, // TODO: correlate id
+    });
+
+    try datastore.create(model.Item, std.testing.allocator, &.{
+        .parent_checklist_id = .{ .some = 2 }, // TODO: correlate id
+        .title = .{ .some = "Iced Tea" },
+        .created_by_user_id = .{ .some = 2 }, // TODO: correlate id
     });
 }
