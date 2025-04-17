@@ -89,6 +89,99 @@ pub const DataStore = struct {
         };
     }
 
+    fn bindFieldValue(
+        self: Self,
+        comptime Field: type,
+        statement: *c.sqlite3_stmt,
+        index: c_int,
+        value: Field.Value,
+    ) !void {
+        switch (@typeInfo(Field.Value)) {
+            .optional => {
+                // XXX: would require recursion or nesting, skip for now
+                unreachable;
+
+                // const result = c.sqlite3_bind_null(statement, parameter_index);
+                // std.debug.assert(result == c.SQLITE_OK);
+            },
+            .int => |_| {
+                // XXX: consider bits and signedness
+                try self.check(c.SQLITE_OK, c.sqlite3_bind_int64(statement, index, @intCast(value)));
+            },
+            .pointer => |pointer| {
+                switch (@typeInfo(pointer.child)) {
+                    .int => |child_int| {
+                        std.debug.assert(child_int.signedness == .unsigned);
+                        std.debug.assert(child_int.bits == 8);
+
+                        try self.check(c.SQLITE_OK, c.sqlite3_bind_text(
+                            statement,
+                            index,
+                            &value[0],
+                            @intCast(value.len),
+                            c.SQLITE_STATIC,
+                        ));
+                    },
+                    else => {
+                        // std.debug.print("{}\n", .{ pointer.child });
+                        @panic("field pointer type not supported");
+                    },
+                }
+            },
+            else => {
+                std.debug.print("{}\n", .{ Field.Value });
+                @panic("field type not supported");
+            },
+        }
+    }
+
+    fn extractFieldValue(
+        self: Self,
+        comptime Field: type,
+        statement: *c.sqlite3_stmt,
+        index: c_int,
+    ) !Field.Value {
+        _ = self; // XXX: should use for error handling
+
+        switch (@typeInfo(Field.Value)) {
+            .optional => {
+                // XXX: would require recursion or nesting, skip for now
+                unreachable;
+
+                // std.debug.assert(c.sqlite3_column_type(statement, index) == SQLITE_NULL);
+            },
+            .bool => {
+                std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
+                return (c.sqlite3_column_int(statement, index) != 0);
+            },
+            .int => |_| {
+                // XXX: consider bits and signedness
+                std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
+                return @intCast(c.sqlite3_column_int64(statement, index));
+            },
+            .pointer => |pointer| {
+                switch (@typeInfo(pointer.child)) {
+                    .int => |child_int| {
+                        std.debug.assert(child_int.signedness == .unsigned);
+                        std.debug.assert(child_int.bits == 8);
+
+                        std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_TEXT);
+                        const value_base = c.sqlite3_column_text(statement, index);
+                        return std.mem.span(value_base);
+                    },
+                    else => {
+                        // std.debug.print("{}\n", .{ pointer.child });
+                        @panic("field pointer type not supported");
+                    },
+                }
+            },
+            else => {
+                std.debug.print("{}\n", .{ Field.Value });
+                @panic("field type not supported");
+            },
+        }
+    }
+
     pub fn create(
         self: Self,
         comptime Model: type,
@@ -185,52 +278,13 @@ pub const DataStore = struct {
         inline for (std.meta.fields(Model.Fields)) |field| {
             switch (@field(data, field.name)) {
                 .some => |value| {
-                    const parameter_index = c.sqlite3_bind_parameter_index(
+                    const index = c.sqlite3_bind_parameter_index(
                         statement,
                         try std.fmt.allocPrintZ(arena_allocator, ":{s}", .{field.name}),
                     );
 
-                    std.debug.assert(parameter_index != 0);
-                    switch (@typeInfo(field.type.Value)) {
-                        .optional => {
-                            // XXX: would require recursion or nesting, skip for now
-                            unreachable;
-
-                            // const result = c.sqlite3_bind_null(statement, parameter_index);
-                            // std.debug.assert(result == c.SQLITE_OK);
-                        },
-                        .int => |_| {
-                            // XXX: consider bits and signedness
-                            const result = c.sqlite3_bind_int64(statement, parameter_index, @intCast(value));
-                            std.debug.assert(result == c.SQLITE_OK);
-                        },
-                        .pointer => |pointer| {
-                            switch (@typeInfo(pointer.child)) {
-                                .int => |child_int| {
-                                    std.debug.assert(child_int.signedness == .unsigned);
-                                    std.debug.assert(child_int.bits == 8);
-
-                                    const result = c.sqlite3_bind_text(
-                                        statement,
-                                        parameter_index,
-                                        &value[0],
-                                        @intCast(value.len),
-                                        c.SQLITE_STATIC,
-                                    );
-
-                                    std.debug.assert(result == c.SQLITE_OK);
-                                },
-                                else => {
-                                    // std.debug.print("{}\n", .{ pointer.child });
-                                    @panic("field pointer type not supported");
-                                },
-                            }
-                        },
-                        else => {
-                            std.debug.print("{}\n", .{ field.type.Value });
-                            @panic("field type not supported");
-                        },
-                    }
+                    std.debug.assert(index != 0);
+                    self.bindFieldValue(field.type, statement, index, value) catch return error.PrepareStatement;
                 },
                 .none => {},
             }
@@ -310,46 +364,12 @@ pub const DataStore = struct {
         // execute the statement
         self.check(c.SQLITE_ROW, c.sqlite3_step(statement)) catch return error.InstanceNotFound;
 
-        // XXX
+        // XXX: probably a more efficient way to do this
         var data: Model.Data = undefined;
         inline for (0.., std.meta.fields(Model.Data)) |index, field| {
-            switch (@typeInfo(field.type)) {
-                .optional => {
-                    // XXX: would require recursion or nesting, skip for now
-                    unreachable;
-
-                    // std.debug.assert(c.sqlite3_column_type(statement, index) == SQLITE_NULL);
-                },
-                .bool => {
-                    std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
-                    @field(data, field.name) = (c.sqlite3_column_int(statement, index) != 0);
-                },
-                .int => |_| {
-                    // XXX: consider bits and signedness
-                    std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_INTEGER);
-                    @field(data, field.name) = @intCast(c.sqlite3_column_int64(statement, index));
-                },
-                .pointer => |pointer| {
-                    switch (@typeInfo(pointer.child)) {
-                        .int => |child_int| {
-                            std.debug.assert(child_int.signedness == .unsigned);
-                            std.debug.assert(child_int.bits == 8);
-
-                            std.debug.assert(c.sqlite3_column_type(statement, index) == c.SQLITE_TEXT);
-                            const value_base = c.sqlite3_column_text(statement, index);
-                            @field(data, field.name) = std.mem.span(value_base);
-                        },
-                        else => {
-                            // std.debug.print("{}\n", .{ pointer.child });
-                            @panic("field pointer type not supported");
-                        },
-                    }
-                },
-                else => {
-                    std.debug.print("{}\n", .{ field.type.Value });
-                    @panic("field type not supported");
-                },
-            }
+            const definition_index = std.meta.fieldIndex(Model.Fields, field.name) orelse unreachable;
+            const definition_field = std.meta.fields(Model.Fields)[definition_index];
+            @field(data, field.name) = try self.extractFieldValue(definition_field.type, statement, index);
         }
 
         // XXX
@@ -452,52 +472,13 @@ pub const DataStore = struct {
         inline for (std.meta.fields(Model.Fields)) |field| {
             switch (@field(data, field.name)) {
                 .some => |value| {
-                    const parameter_index = c.sqlite3_bind_parameter_index(
+                    const index = c.sqlite3_bind_parameter_index(
                         statement,
                         try std.fmt.allocPrintZ(arena_allocator, ":{s}", .{field.name}),
                     );
 
-                    std.debug.assert(parameter_index != 0);
-                    switch (@typeInfo(field.type.Value)) {
-                        .optional => {
-                            // XXX: would require recursion or nesting, skip for now
-                            unreachable;
-
-                            // const result = c.sqlite3_bind_null(statement, parameter_index);
-                            // std.debug.assert(result == c.SQLITE_OK);
-                        },
-                        .int => |_| {
-                            // XXX: consider bits and signedness
-                            const result = c.sqlite3_bind_int64(statement, parameter_index, @intCast(value));
-                            std.debug.assert(result == c.SQLITE_OK);
-                        },
-                        .pointer => |pointer| {
-                            switch (@typeInfo(pointer.child)) {
-                                .int => |child_int| {
-                                    std.debug.assert(child_int.signedness == .unsigned);
-                                    std.debug.assert(child_int.bits == 8);
-
-                                    const result = c.sqlite3_bind_text(
-                                        statement,
-                                        parameter_index,
-                                        &value[0],
-                                        @intCast(value.len),
-                                        c.SQLITE_STATIC,
-                                    );
-
-                                    std.debug.assert(result == c.SQLITE_OK);
-                                },
-                                else => {
-                                    // std.debug.print("{}\n", .{ pointer.child });
-                                    @panic("field pointer type not supported");
-                                },
-                            }
-                        },
-                        else => {
-                            std.debug.print("{}\n", .{ field.type.Value });
-                            @panic("field type not supported");
-                        },
-                    }
+                    std.debug.assert(index != 0);
+                    self.bindFieldValue(field.type, statement, index, value) catch return error.PrepareStatement;
                 },
                 .none => {},
             }
