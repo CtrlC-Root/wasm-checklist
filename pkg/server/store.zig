@@ -60,6 +60,35 @@ pub const DataStore = struct {
         return;
     }
 
+    fn check(self: Self, expected: c_int, actual: c_int) !void {
+        // https://sqlite.org/rescode.html#result_codes_versus_error_codes
+        const safe_result = switch (expected) {
+            c.SQLITE_OK, c.SQLITE_ROW, c.SQLITE_DONE => expected,
+            else => unreachable,
+        };
+
+        if (actual == safe_result) {
+            return;
+        }
+
+        // TODO: use std.log for this
+        // https://sqlite.org/c3ref/errcode.html
+        const extended = c.sqlite3_extended_errcode(self.database);
+        const message = c.sqlite3_errmsg(self.database);
+        std.debug.print("database error ({d}): {s}\n", .{ extended, message });
+
+        // XXX: translate useful primary result codes to errors
+        // https://sqlite.org/rescode.html#primary_result_code_list
+        return switch (actual) {
+            c.SQLITE_OK => unreachable,
+            c.SQLITE_ROW => error.UnexpectedRow,
+            c.SQLITE_DONE => error.UnexpctedDone,
+            c.SQLITE_NOMEM => error.MemoryAllocation,
+            c.SQLITE_CONSTRAINT => error.Constraint,
+            else => error.InternalError, // XXX: actually c.SQLITE_INTERNAL
+        };
+    }
+
     pub fn create(
         self: Self,
         comptime Model: type,
@@ -133,18 +162,23 @@ pub const DataStore = struct {
         // create prepared statement
         const statement = blk: {
             var statement: ?*c.sqlite3_stmt = undefined;
-            const result = c.sqlite3_prepare_v2(self.database, sql, @intCast(sql.len + 1), &statement, null);
-            if (result != c.SQLITE_OK) {
-                std.debug.print("failed to prepare statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
-                return error.PrepareStatement;
-            }
+            self.check(c.SQLITE_OK, c.sqlite3_prepare_v2(
+                self.database,
+                sql,
+                @intCast(sql.len + 1),
+                &statement,
+                null,
+            )) catch return error.PrepareStatement;
 
             break :blk statement.?;
         };
 
         defer {
-            const result = c.sqlite3_finalize(statement);
-            std.debug.assert(result == c.SQLITE_OK);
+            // finalize will return an error depending on whether the last
+            // statement evaluation succeeded or not but here we can't raise
+            // any errors anyways so we ignore the result
+            // https://sqlite.org/c3ref/finalize.html
+            _ = c.sqlite3_finalize(statement);
         }
 
         // bind data to prepared statement placeholders
@@ -203,15 +237,12 @@ pub const DataStore = struct {
         }
 
         // execute the prepared statement
-        const result = c.sqlite3_step(statement);
-        if (result != c.SQLITE_DONE) {
-            std.debug.print("failed to step statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
-            return error.ExecuteStatement;
-        }
+        self.check(c.SQLITE_DONE, c.sqlite3_step(statement)) catch return error.ExecuteStatement;
 
         // XXX: the rowid may not be the id column so you'd need to SELECT it
-        const last_id = c.sqlite3_last_insert_rowid(self.database);
-        return @intCast(last_id);
+        const last_rowid = c.sqlite3_last_insert_rowid(self.database);
+        std.debug.assert(last_rowid != 0);
+        return @intCast(last_rowid);
     }
 
     pub fn retrieve(
@@ -253,31 +284,31 @@ pub const DataStore = struct {
         // create prepared statement
         const statement = blk: {
             var statement: ?*c.sqlite3_stmt = undefined;
-            const result = c.sqlite3_prepare_v2(self.database, sql, @intCast(sql.len + 1), &statement, null);
-            if (result != c.SQLITE_OK) {
-                std.debug.print("failed to prepare statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
-                return error.PrepareStatement;
-            }
+            self.check(c.SQLITE_OK, c.sqlite3_prepare_v2(
+                self.database,
+                sql,
+                @intCast(sql.len + 1),
+                &statement,
+                null,
+            )) catch return error.PrepareStatement;
 
             break :blk statement.?;
         };
 
         defer {
-            const result = c.sqlite3_finalize(statement);
-            std.debug.assert(result == c.SQLITE_OK);
+            // finalize will return an error depending on whether the last
+            // statement evaluation succeeded or not but here we can't raise
+            // any errors anyways so we ignore the result
+            // https://sqlite.org/c3ref/finalize.html
+            _ = c.sqlite3_finalize(statement);
         }
 
         // bind data to prepared statement placeholders
         // XXX: model id may not always be an integer
-        const bind_result = c.sqlite3_bind_int64(statement, 1, @intCast(id));
-        std.debug.assert(bind_result == c.SQLITE_OK);
+        self.check(c.SQLITE_OK, c.sqlite3_bind_int64(statement, 1, @intCast(id))) catch return error.PrepareStatement;
 
         // execute the statement
-        const first_step_result = c.sqlite3_step(statement);
-        if (first_step_result != c.SQLITE_ROW) {
-            std.debug.print("failed to retrieve statement row: {s}\n", .{ c.sqlite3_errmsg(self.database) });
-            return error.InstanceNotFound;
-        }
+        self.check(c.SQLITE_ROW, c.sqlite3_step(statement)) catch return error.InstanceNotFound;
 
         // XXX
         var data: Model.Data = undefined;
@@ -327,8 +358,7 @@ pub const DataStore = struct {
         errdefer instance.deinit(allocator);
 
         // XXX
-        const second_step_result = c.sqlite3_step(statement);
-        std.debug.assert(second_step_result == c.SQLITE_DONE);
+        self.check(c.SQLITE_DONE, c.sqlite3_step(statement)) catch return error.ExecuteStatement;
 
         // XXX
         return instance;
@@ -399,18 +429,23 @@ pub const DataStore = struct {
         // create prepared statement
         const statement = blk: {
             var statement: ?*c.sqlite3_stmt = undefined;
-            const result = c.sqlite3_prepare_v2(self.database, sql, @intCast(sql.len + 1), &statement, null);
-            if (result != c.SQLITE_OK) {
-                std.debug.print("failed to prepare statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
-                return error.PrepareStatement;
-            }
+            self.check(c.SQLITE_OK, c.sqlite3_prepare_v2(
+                self.database,
+                sql,
+                @intCast(sql.len + 1),
+                &statement,
+                null,
+            )) catch return error.PrepareStatement;
 
             break :blk statement.?;
         };
 
         defer {
-            const result = c.sqlite3_finalize(statement);
-            std.debug.assert(result == c.SQLITE_OK);
+            // finalize will return an error depending on whether the last
+            // statement evaluation succeeded or not but here we can't raise
+            // any errors anyways so we ignore the result
+            // https://sqlite.org/c3ref/finalize.html
+            _ = c.sqlite3_finalize(statement);
         }
 
         // bind data to prepared statement placeholders
@@ -474,12 +509,10 @@ pub const DataStore = struct {
             try std.fmt.allocPrintZ(arena_allocator, ":_{s}", .{Model.idFieldName})
         );
 
-        const result = c.sqlite3_bind_int64(statement, parameter_index, @intCast(id));
-        std.debug.assert(result == c.SQLITE_OK);
+        self.check(c.SQLITE_OK, c.sqlite3_bind_int64(statement, parameter_index, @intCast(id))) catch return error.PrepareStatement;
 
         // execute the statement
-        const first_step_result = c.sqlite3_step(statement);
-        std.debug.assert(first_step_result == c.SQLITE_DONE);
+        self.check(c.SQLITE_DONE, c.sqlite3_step(statement)) catch return error.ExecuteStatement;
     }
 
     pub fn delete(
@@ -511,28 +544,31 @@ pub const DataStore = struct {
         // create prepared statement
         const statement = blk: {
             var statement: ?*c.sqlite3_stmt = undefined;
-            const result = c.sqlite3_prepare_v2(self.database, sql, @intCast(sql.len + 1), &statement, null);
-            if (result != c.SQLITE_OK) {
-                std.debug.print("failed to prepare statement: {s}\n", .{ c.sqlite3_errmsg(self.database) });
-                return error.PrepareStatement;
-            }
+            self.check(c.SQLITE_OK, c.sqlite3_prepare_v2(
+                self.database,
+                sql,
+                @intCast(sql.len + 1),
+                &statement,
+                null,
+            )) catch return error.PrepareStatement;
 
             break :blk statement.?;
         };
 
         defer {
-            const result = c.sqlite3_finalize(statement);
-            std.debug.assert(result == c.SQLITE_OK);
+            // finalize will return an error depending on whether the last
+            // statement evaluation succeeded or not but here we can't raise
+            // any errors anyways so we ignore the result
+            // https://sqlite.org/c3ref/finalize.html
+            _ = c.sqlite3_finalize(statement);
         }
 
         // bind data to prepared statement placeholders
         // XXX: model id may not always be an integer
-        const bind_result = c.sqlite3_bind_int64(statement, 1, @intCast(id));
-        std.debug.assert(bind_result == c.SQLITE_OK);
+        self.check(c.SQLITE_OK, c.sqlite3_bind_int64(statement, 1, @intCast(id))) catch return error.PrepareStatement;
 
         // execute the statement
-        const first_step_result = c.sqlite3_step(statement);
-        std.debug.assert(first_step_result == c.SQLITE_DONE);
+        self.check(c.SQLITE_DONE, c.sqlite3_step(statement)) catch return error.ExecuteStatement;
     }
 };
 
