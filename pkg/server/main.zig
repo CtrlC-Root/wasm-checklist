@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 // first-party
+const model = @import("model.zig");
 const store = @import("store.zig");
 
 // testing related import processing
@@ -31,14 +32,199 @@ pub fn signal_handle(signal: c_int) callconv(.C) void {
 }
 
 // XXX
+fn processModelRequest(
+    comptime Model: type,
+    allocator: std.mem.Allocator,
+    datastore: *store.DataStore,
+    request: *std.http.Server.Request,
+) !void {
+    const model_prefix = std.fmt.comptimePrint("/{s}", .{Model.name});
+    std.debug.assert(std.mem.startsWith(u8, request.head.target, model_prefix));
+    const target_without_prefix = std.mem.trimLeft(u8, request.head.target[model_prefix.len..], "/"); // XXX
+
+    // collection request
+    if (target_without_prefix.len == 0) {
+        switch (request.head.method) {
+            // get all instances
+            .GET => {
+                var instances: std.ArrayListUnmanaged(Model) = .empty;
+                defer instances.deinit(allocator);
+
+                // TODO: also remember to deinit() all model instances as well
+                // var instance_iterator = model_store.instances.valueIterator();
+                // while (instance_iterator.next()) |instance| {
+                //     try instances.append(request_allocator, instance);
+                // }
+
+                const response = try std.json.stringifyAlloc(allocator, instances.items, .{});
+                defer allocator.free(response);
+
+                try request.respond(response, .{
+                    .extra_headers = &.{
+                        .{ .name = "Content-Type", .value = "application/json" },
+                        .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+                    },
+                });
+            },
+            // create a new instance
+            .POST => {
+                // XXX: make this a runtime error
+                std.debug.assert(std.mem.eql(u8, request.head.content_type.?, "application/json"));
+
+                // parse request body as model data
+                const request_reader = try request.reader();
+                var json_reader = std.json.reader(allocator, request_reader);
+                defer json_reader.deinit();
+
+                const data_parsed = try std.json.parseFromTokenSource(
+                    Model.PartialData,
+                    allocator,
+                    &json_reader,
+                    .{},
+                );
+
+                defer data_parsed.deinit();
+
+                // create an instance of the model
+                const instance_id = try datastore.create(Model, allocator, &data_parsed.value);
+                std.debug.print("{s}: created instance: {d}\n", .{ Model.name, instance_id });
+
+                // inform the client of the new instance
+                const response = try std.fmt.allocPrint(allocator, "{d}", .{instance_id});
+                defer allocator.free(response);
+
+                try request.respond(response, .{
+                    .status = std.http.Status.created,
+                });
+            },
+            else => {
+                try request.respond("Method Not Allowed", .{
+                    .status = std.http.Status.method_not_allowed,
+                });
+            },
+        }
+    // instance request
+    } else {
+        const instance_id = try std.fmt.parseInt(Model.IdFieldValue, target_without_prefix, 10);
+        switch (request.head.method) {
+            // get instance
+            .GET => {
+                const instance = datastore.retrieve(Model, allocator, instance_id) catch |err| switch (err) {
+                    error.InstanceNotFound => {
+                        std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
+                        try request.respond("Not Found", .{
+                            .status = std.http.Status.not_found,
+                        });
+
+                        return;
+                    },
+                    else => return err,
+                };
+
+                defer instance.deinit(allocator);
+
+                std.debug.print("{s}: retrieved instance: {d}\n", .{ Model.name, instance_id });
+                const response = try std.json.stringifyAlloc(allocator, instance.data, .{});
+                defer allocator.free(response);
+
+                try request.respond(response, .{
+                    .extra_headers = &.{
+                        .{ .name = "Content-Type", .value = "application/json" },
+                    },
+                });
+            },
+            // update instance
+            .PUT => {
+                // XXX: make this a runtime error
+                std.debug.assert(std.mem.eql(u8, request.head.content_type.?, "application/json"));
+
+                // parse request body as model data
+                const request_reader = try request.reader();
+                var json_reader = std.json.reader(allocator, request_reader);
+                defer json_reader.deinit();
+
+                const data_parsed = try std.json.parseFromTokenSource(
+                    Model.PartialData,
+                    allocator,
+                    &json_reader,
+                    .{},
+                );
+
+                defer data_parsed.deinit();
+
+                // update the instance
+                datastore.update(Model, allocator, instance_id, &data_parsed.value) catch |err| switch (err) {
+                    error.ExecuteStatement => {
+                        std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
+                        try request.respond("Not Found", .{
+                            .status = std.http.Status.not_found,
+                        });
+
+                        return;
+                    },
+                    else => return err,
+                };
+
+                std.debug.print("{s}: instance updated: {d}\n", .{ Model.name, instance_id });
+                try request.respond("", .{
+                    .status = std.http.Status.no_content,
+                });
+            },
+            // delete instance
+            .DELETE => {
+                datastore.delete(Model, allocator, instance_id) catch |err| switch (err) {
+                    error.ExecuteStatement => {
+                        std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
+                        try request.respond("Not Found", .{
+                            .status = std.http.Status.not_found,
+                        });
+
+                        return;
+                    },
+                    else => return err,
+                };
+
+                std.debug.print("{s}: destroyed instance: {d}\n", .{ Model.name, instance_id });
+                try request.respond("", .{
+                    .status = std.http.Status.no_content,
+                });
+            },
+            else => {
+                try request.respond("Method Not Allowed", .{
+                    .status = std.http.Status.method_not_allowed,
+                });
+            },
+        }
+    }
+}
+
+// XXX
+fn processRequest(
+    allocator: std.mem.Allocator,
+    datastore: *store.DataStore,
+    request: *std.http.Server.Request,
+) !void {
+    const model_types: [3]type = .{model.User, model.Checklist, model.Item};
+    inline for (model_types) |model_type| {
+        const leaf_url = std.fmt.comptimePrint("/{s}", .{model_type.name});
+        const prefix_url = std.fmt.comptimePrint("/{s}/", .{model_type.name});
+
+        if (std.mem.startsWith(u8, request.head.target, prefix_url) or std.mem.eql(u8, request.head.target, leaf_url)) {
+            try processModelRequest(model_type, allocator, datastore, request);
+        }
+    } else {
+        try request.respond("Not Found", .{
+            .status = std.http.Status.not_found,
+        });
+    }
+}
+
+// XXX
 fn processClient(
     allocator: std.mem.Allocator,
     datastore: *store.DataStore,
     connection: *std.net.Server.Connection,
 ) !void {
-    _ = allocator; // PLACEHOLDER
-    _ = datastore; // PLACEHOLDER
-
     var buffer: [65535]u8 = undefined; // XXX: allocate fixed buffer
     var client = std.http.Server.init(connection.*, &buffer);
 
@@ -62,12 +248,12 @@ fn processClient(
         });
 
         // XXX: use an arena allocator?
-        // processRequest(allocator, data, &request) catch {
-        //     // XXX: include error message
-        //     try request.respond("uh oh", .{
-        //         .status = std.http.Status.internal_server_error,
-        //     });
-        // };
+        processRequest(allocator, datastore, &request) catch {
+            // XXX: include error message
+            try request.respond("uh oh", .{
+                .status = std.http.Status.internal_server_error,
+            });
+        };
 
         // TODO: close connection after processing one request so we don't get
         // blocked waiting for the next client.receiveHead() if the client is
