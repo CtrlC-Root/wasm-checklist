@@ -263,7 +263,7 @@ pub fn main() !void {
 
     // initialize the data store
     var datastore: store.DataStore = .{};
-    try datastore.init("./checklist.db");
+    try datastore.init("./data.db");
     defer datastore.deinit();
 
     // install signal handlers
