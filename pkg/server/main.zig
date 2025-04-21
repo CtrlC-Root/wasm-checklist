@@ -47,16 +47,23 @@ fn processModelRequest(
         switch (request.head.method) {
             // get all instances
             .GET => {
-                var instances: std.ArrayListUnmanaged(Model) = .empty;
-                defer instances.deinit(allocator);
+                const instances = try datastore.retrieveAll(Model, allocator);
+                defer {
+                    for (instances) |instance| {
+                        instance.deinit(allocator);
+                    }
 
-                // TODO: also remember to deinit() all model instances as well
-                // var instance_iterator = model_store.instances.valueIterator();
-                // while (instance_iterator.next()) |instance| {
-                //     try instances.append(request_allocator, instance);
-                // }
+                    allocator.free(instances);
+                }
 
-                const response = try std.json.stringifyAlloc(allocator, instances.items, .{});
+                const instances_data: []*const Model.Data = try allocator.alloc(*const Model.Data, instances.len);
+                defer allocator.free(instances_data);
+
+                for (0..instances.len) |index| {
+                    instances_data[index] = &instances[index].data;
+                }
+
+                const response = try std.json.stringifyAlloc(allocator, instances_data, .{});
                 defer allocator.free(response);
 
                 try request.respond(response, .{

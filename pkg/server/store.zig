@@ -384,6 +384,104 @@ pub const DataStore = struct {
         return instance;
     }
 
+    pub fn retrieveAll(
+        self: Self,
+        comptime Model: type,
+        allocator: std.mem.Allocator,
+    ) ![]Model {
+        // create an arena allocator for temporary data
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        // XXX
+        const sql: [:0]const u8 = blk: {
+            // create the insert sql
+            var buffer = std.ArrayList(u8).init(arena_allocator);
+            defer buffer.deinit(); // XXX: not required with arena
+
+            try buffer.appendSlice("SELECT ");
+
+            inline for (0.., std.meta.fields(Model.Data)) |index, field| {
+                if (index > 0) {
+                    try buffer.appendSlice(", ");
+                }
+
+                try buffer.appendSlice(field.name);
+            }
+
+            try buffer.appendSlice(try std.fmt.allocPrint(
+                arena_allocator,
+                " FROM {s}",
+                .{Model.name},
+            ));
+
+            break :blk try arena_allocator.dupeZ(u8, buffer.items);
+        };
+
+        // create prepared statement
+        const statement = blk: {
+            var statement: ?*c.sqlite3_stmt = undefined;
+            self.check(c.SQLITE_OK, c.sqlite3_prepare_v2(
+                self.database,
+                sql,
+                @intCast(sql.len + 1),
+                &statement,
+                null,
+            )) catch return error.PrepareStatement;
+
+            break :blk statement.?;
+        };
+
+        defer {
+            // finalize will return an error depending on whether the last
+            // statement evaluation succeeded or not but here we can't raise
+            // any errors anyways so we ignore the result
+            // https://sqlite.org/c3ref/finalize.html
+            _ = c.sqlite3_finalize(statement);
+        }
+
+        // XXX
+        var instances = std.ArrayList(Model).init(allocator);
+        errdefer {
+            for (instances.items) |instance| {
+                instance.deinit(allocator);
+            }
+
+            instances.deinit();
+        }
+
+        // XXX
+        var last_return_value = c.sqlite3_step(statement);
+        while (last_return_value == c.SQLITE_ROW) {
+            // XXX: probably a more efficient way to do this
+            var data: Model.Data = undefined;
+            inline for (0.., std.meta.fields(Model.Data)) |index, field| {
+                const definition_index = std.meta.fieldIndex(Model.Fields, field.name) orelse unreachable;
+                const definition_field = std.meta.fields(Model.Fields)[definition_index];
+                @field(data, field.name) = try self.extractFieldValue(definition_field.type, statement, index);
+            }
+
+            // XXX
+            var instance: Model = .{};
+            try instance.init(allocator, &data);
+            errdefer instance.deinit(allocator);
+
+            // XXX
+            try instances.append(instance);
+
+            // XXX
+            last_return_value = c.sqlite3_step(statement);
+        }
+
+        if (last_return_value != c.SQLITE_DONE) {
+            return error.ExecuteStatement;
+        }
+
+        // XXX
+        return try instances.toOwnedSlice();
+    }
+
     pub fn update(
         self: Self,
         comptime Model: type,
@@ -575,6 +673,8 @@ test "datastore" {
     });
 
     try std.testing.expect(john_user_id != jane_user_id);
+
+    // TODO: retrieve all test
 
     // create a checklist from partial data and retrieve it
     const john_checklist_id = try datastore.create(model.Checklist, std.testing.allocator, &.{
