@@ -18,7 +18,7 @@ pub fn Field(comptime FieldValue: type) type {
                 },
                 else => {
                     return source;
-                }
+                },
             }
         }
 

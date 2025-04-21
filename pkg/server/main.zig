@@ -101,7 +101,7 @@ fn processModelRequest(
                 });
             },
         }
-    // instance request
+        // instance request
     } else {
         const instance_id = try std.fmt.parseInt(Model.IdFieldValue, target_without_prefix, 10);
         switch (request.head.method) {
@@ -193,7 +193,7 @@ fn processRequest(
     datastore: *store.DataStore,
     request: *std.http.Server.Request,
 ) !void {
-    const model_types: [3]type = .{model.User, model.Checklist, model.Item};
+    const model_types: [3]type = .{ model.User, model.Checklist, model.Item };
     inline for (model_types) |model_type| {
         const leaf_url = std.fmt.comptimePrint("/{s}", .{model_type.name});
         const prefix_url = std.fmt.comptimePrint("/{s}/", .{model_type.name});

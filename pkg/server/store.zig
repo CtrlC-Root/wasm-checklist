@@ -129,7 +129,7 @@ pub const DataStore = struct {
                 }
             },
             else => {
-                std.debug.print("{}\n", .{ Field.Value });
+                std.debug.print("{}\n", .{Field.Value});
                 @panic("field type not supported");
             },
         }
@@ -176,7 +176,7 @@ pub const DataStore = struct {
                 }
             },
             else => {
-                std.debug.print("{}\n", .{ Field.Value });
+                std.debug.print("{}\n", .{Field.Value});
                 @panic("field type not supported");
             },
         }
@@ -329,7 +329,7 @@ pub const DataStore = struct {
             try buffer.appendSlice(try std.fmt.allocPrint(
                 arena_allocator,
                 " FROM {s} WHERE {s} = :{s}",
-                .{Model.name, Model.idFieldName, Model.idFieldName},
+                .{ Model.name, Model.idFieldName, Model.idFieldName },
             ));
 
             break :blk try arena_allocator.dupeZ(u8, buffer.items);
@@ -531,14 +531,14 @@ pub const DataStore = struct {
                 try buffer.appendSlice(try std.fmt.allocPrint(
                     arena_allocator,
                     "{s} = :{s}",
-                    .{field_name, field_name},
+                    .{ field_name, field_name },
                 ));
             }
 
             try buffer.appendSlice(try std.fmt.allocPrint(
                 arena_allocator,
                 " WHERE {s} = :_{s}",
-                .{Model.idFieldName, Model.idFieldName},
+                .{ Model.idFieldName, Model.idFieldName },
             ));
 
             break :blk try arena_allocator.dupeZ(u8, buffer.items);
@@ -585,7 +585,7 @@ pub const DataStore = struct {
         // XXX: model id may not always be an integer
         const parameter_index = c.sqlite3_bind_parameter_index(
             statement,
-            try std.fmt.allocPrintZ(arena_allocator, ":_{s}", .{Model.idFieldName})
+            try std.fmt.allocPrintZ(arena_allocator, ":_{s}", .{Model.idFieldName}),
         );
 
         self.check(c.SQLITE_OK, c.sqlite3_bind_int64(statement, parameter_index, @intCast(id))) catch return error.PrepareStatement;
@@ -614,7 +614,7 @@ pub const DataStore = struct {
             try buffer.appendSlice(try std.fmt.allocPrint(
                 arena_allocator,
                 "DELETE FROM {s} WHERE {s} = :{s}",
-                .{Model.name, Model.idFieldName, Model.idFieldName},
+                .{ Model.name, Model.idFieldName, Model.idFieldName },
             ));
 
             break :blk try arena_allocator.dupeZ(u8, buffer.items);
