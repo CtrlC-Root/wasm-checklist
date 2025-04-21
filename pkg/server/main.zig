@@ -80,7 +80,7 @@ fn processModelRequest(
 
                 // parse request body as model data
                 const request_reader = try request.reader();
-                const partial_data = try Model.parsePartialData(allocator, request_reader);
+                const partial_data = try Model.parseJsonPartialData(allocator, request_reader);
                 defer Model.deinitPartialData(&partial_data, allocator);
 
                 // create an instance of the model
@@ -138,7 +138,7 @@ fn processModelRequest(
 
                 // parse request body as model data
                 const request_reader = try request.reader();
-                const partial_data = try Model.parsePartialData(allocator, request_reader);
+                const partial_data = try Model.parseJsonPartialData(allocator, request_reader);
                 defer Model.deinitPartialData(&partial_data, allocator);
 
                 // update the instance

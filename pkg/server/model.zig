@@ -10,8 +10,8 @@ pub fn Field(comptime FieldValue: type) type {
             some: Value,
         };
 
-        // allocate or copy the field value
-        pub fn init(allocator: std.mem.Allocator, source: Self.Value) !Self.Value {
+        // memory management for values
+        pub fn initValue(allocator: std.mem.Allocator, source: Self.Value) !Self.Value {
             switch (@typeInfo(Self.Value)) {
                 .pointer => |pointer| {
                     return try allocator.dupe(pointer.child, source);
@@ -22,13 +22,27 @@ pub fn Field(comptime FieldValue: type) type {
             }
         }
 
-        // free the field value if necessary
-        pub fn deinit(allocator: std.mem.Allocator, target: Self.Value) void {
+        pub fn deinitValue(allocator: std.mem.Allocator, target: Self.Value) void {
             switch (@typeInfo(Self.Value)) {
                 .pointer => |_| {
                     allocator.free(target);
                 },
                 else => {},
+            }
+        }
+
+        // memory management for optional values
+        pub fn initOptionalValue(allocator: std.mem.Allocator, source: Self.OptionalValue) !Self.OptionalValue {
+            return switch (source) {
+                .some => |value| Self.OptionalValue{ .some = try Self.initValue(allocator, value) },
+                .none => Self.OptionalValue.none,
+            };
+        }
+
+        pub fn deinitOptionalValue(allocator: std.mem.Allocator, target: Self.OptionalValue) void {
+            switch (target) {
+                .some => |value| Self.deinitValue(allocator, value),
+                .none => {},
             }
         }
     };
@@ -123,12 +137,12 @@ pub fn Model(
         pub const Data = data_type;
         pub const PartialData = partial_data_type;
 
-        // XXX
-        pub fn parsePartialData(allocator: std.mem.Allocator, io_reader: anytype) !Self.PartialData {
+        // partial data functionality
+        pub fn parseJsonPartialData(allocator: std.mem.Allocator, io_reader: anytype) !Self.PartialData {
             var json_reader = std.json.reader(allocator, io_reader);
             defer json_reader.deinit();
 
-            // XXX
+            // parse an arbitrary JSON value
             const data_parsed = try std.json.parseFromTokenSource(
                 std.json.Value,
                 allocator,
@@ -138,12 +152,20 @@ pub fn Model(
 
             defer data_parsed.deinit();
 
-            // XXX
+            // validate the parsed value is a JSON object
+            const data_object = switch (data_parsed.value) {
+                .object => |object| object,
+                else => return error.InvalidJsonValue,
+            };
+
+            // XXX: detect object fields that don't correspond to model fields and throw an error
+
+            // extract field values from the parsed object
             var data: Self.PartialData = .{};
             errdefer Self.deinitPartialData(&data, allocator);
 
             inline for (std.meta.fields(Self.Fields)) |field| {
-                if (data_parsed.value.object.get(field.name)) |value| {
+                if (data_object.get(field.name)) |value| {
                     const value_parsed = try std.json.parseFromValue(
                         field.type.Value,
                         allocator,
@@ -153,7 +175,7 @@ pub fn Model(
 
                     defer value_parsed.deinit();
 
-                    const allocated_value = try field.type.init(allocator, value_parsed.value);
+                    const allocated_value = try field.type.initValue(allocator, value_parsed.value);
                     @field(data, field.name) = field.type.OptionalValue{ .some = allocated_value };
                 }
             }
@@ -161,15 +183,9 @@ pub fn Model(
             return data;
         }
 
-        // XXX
         pub fn deinitPartialData(self: *const Self.PartialData, allocator: std.mem.Allocator) void {
             inline for (std.meta.fields(Self.Fields)) |field| {
-                switch (@field(self, field.name)) {
-                    .some => |value| {
-                        field.type.deinit(allocator, value);
-                    },
-                    .none => {},
-                }
+                field.type.deinitOptionalValue(allocator, @field(self, field.name));
             }
         }
 
@@ -183,13 +199,13 @@ pub fn Model(
             errdefer {
                 inline for (0.., fields) |index, field| {
                     if (initialized.isSet(index)) {
-                        field.type.deinit(allocator, @field(self.data, field.name));
+                        field.type.deinitValue(allocator, @field(self.data, field.name));
                     }
                 }
             }
 
             inline for (0.., fields) |index, field| {
-                @field(self.data, field.name) = try field.type.init(
+                @field(self.data, field.name) = try field.type.initValue(
                     allocator,
                     @field(data, field.name),
                 );
@@ -200,7 +216,7 @@ pub fn Model(
 
         pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
             inline for (std.meta.fields(Self.Fields)) |field| {
-                field.type.deinit(allocator, @field(self.data, field.name));
+                field.type.deinitValue(allocator, @field(self.data, field.name));
             }
         }
 
@@ -257,7 +273,7 @@ test "general model usage" {
     ;
 
     var sample_partial_fbs = std.io.fixedBufferStream(sample_partial_json);
-    const parsed_partial_data = try Vehicle.parsePartialData(std.testing.allocator, sample_partial_fbs.reader());
+    const parsed_partial_data = try Vehicle.parseJsonPartialData(std.testing.allocator, sample_partial_fbs.reader());
     defer Vehicle.deinitPartialData(&parsed_partial_data, std.testing.allocator);
 
     try std.testing.expectEqual(partial_data.vin, parsed_partial_data.vin);
