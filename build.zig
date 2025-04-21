@@ -68,15 +68,42 @@ pub fn build(b: *std.Build) void {
     });
 
     // local server executable
+    const server_root_source_file = b.path("pkg/server/main.zig");
     const server_executable = b.addExecutable(.{
         .name = "server",
-        .root_source_file = b.path("pkg/server/main.zig"),
+        .root_source_file = server_root_source_file,
         .target = local_target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
     server_executable.root_module.addOptions("build", build_options);
+    server_executable.linkSystemLibrary("sqlite3");
     b.installArtifact(server_executable);
+
+    // server unit tests
+    const server_unit_tests = b.addTest(.{
+        .root_source_file = server_root_source_file,
+        .target = local_target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
+    server_unit_tests.root_module.addOptions("build", build_options);
+    server_unit_tests.linkSystemLibrary("sqlite3");
+    const run_server_unit_tests = b.addRunArtifact(server_unit_tests);
+
+    // XXX
+    const run_server_executable = b.addRunArtifact(server_executable);
+    run_server_executable.step.dependOn(b.getInstallStep());
+
+    // if (b.args) |args| {
+    //     run_server_executable.addArgs(args);
+    // }
+
+    // target to run server
+    const run_server_step = b.step("run-server", "run data store service");
+    run_server_step.dependOn(&run_server_executable.step);
 
     // application webassembly executable
     const wasm_zts_dependency = b.dependency("zts", .{
@@ -120,6 +147,7 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallFile(application_executable.getEmittedBin(), "web/application.wasm").step);
 
     // target to run tests
-    const test_step = b.step("test", "run tests");
+    const test_step = b.step("test", "run unit tests");
+    test_step.dependOn(&run_server_unit_tests.step);
     test_step.dependOn(&run_application_unit_tests.step);
 }
