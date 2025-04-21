@@ -54,6 +54,7 @@ pub const TimestampField = Field(i64); // std.time.timestamp() result type
 
 pub fn Model(
     comptime modelName: []const u8,
+    // XXX: use this instead https://ziglang.org/documentation/0.14.0/std/#std.meta.FieldEnum
     comptime modelIdFieldName: []const u8,
     comptime ModelFields: type,
 ) type {

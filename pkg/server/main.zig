@@ -1,3 +1,5 @@
+// better way: https://matklad.github.io/2025/03/19/comptime-zig-orm.html
+
 // Zig
 const builtin = @import("builtin");
 const std = @import("std");
