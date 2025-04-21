@@ -73,20 +73,11 @@ fn processModelRequest(
 
                 // parse request body as model data
                 const request_reader = try request.reader();
-                var json_reader = std.json.reader(allocator, request_reader);
-                defer json_reader.deinit();
-
-                const data_parsed = try std.json.parseFromTokenSource(
-                    Model.PartialData,
-                    allocator,
-                    &json_reader,
-                    .{},
-                );
-
-                defer data_parsed.deinit();
+                const partial_data = try Model.parsePartialData(allocator, request_reader);
+                defer Model.deinitPartialData(&partial_data, allocator);
 
                 // create an instance of the model
-                const instance_id = try datastore.create(Model, allocator, &data_parsed.value);
+                const instance_id = try datastore.create(Model, allocator, &partial_data);
                 std.debug.print("{s}: created instance: {d}\n", .{ Model.name, instance_id });
 
                 // inform the client of the new instance
@@ -134,26 +125,17 @@ fn processModelRequest(
                 });
             },
             // update instance
-            .PUT => {
+            .PATCH => {
                 // XXX: make this a runtime error
                 std.debug.assert(std.mem.eql(u8, request.head.content_type.?, "application/json"));
 
                 // parse request body as model data
                 const request_reader = try request.reader();
-                var json_reader = std.json.reader(allocator, request_reader);
-                defer json_reader.deinit();
-
-                const data_parsed = try std.json.parseFromTokenSource(
-                    Model.PartialData,
-                    allocator,
-                    &json_reader,
-                    .{},
-                );
-
-                defer data_parsed.deinit();
+                const partial_data = try Model.parsePartialData(allocator, request_reader);
+                defer Model.deinitPartialData(&partial_data, allocator);
 
                 // update the instance
-                datastore.update(Model, allocator, instance_id, &data_parsed.value) catch |err| switch (err) {
+                datastore.update(Model, allocator, instance_id, &partial_data) catch |err| switch (err) {
                     error.ExecuteStatement => {
                         std.debug.print("{s}: instance not found: {d}\n", .{ Model.name, instance_id });
                         try request.respond("Not Found", .{
@@ -241,11 +223,6 @@ fn processClient(
         };
 
         std.debug.print("{s}: {s}\n", .{ @tagName(request.head.method), request.head.target });
-
-        // TODO: placeholder
-        try request.respond("todo", .{
-            .status = std.http.Status.ok,
-        });
 
         // XXX: use an arena allocator?
         processRequest(allocator, datastore, &request) catch {

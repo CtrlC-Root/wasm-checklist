@@ -123,6 +123,56 @@ pub fn Model(
         pub const Data = data_type;
         pub const PartialData = partial_data_type;
 
+        // XXX
+        pub fn parsePartialData(allocator: std.mem.Allocator, io_reader: anytype) !Self.PartialData {
+            var json_reader = std.json.reader(allocator, io_reader);
+            defer json_reader.deinit();
+
+            // XXX
+            const data_parsed = try std.json.parseFromTokenSource(
+                std.json.Value,
+                allocator,
+                &json_reader,
+                .{},
+            );
+
+            defer data_parsed.deinit();
+
+            // XXX
+            var data: Self.PartialData = .{};
+            errdefer Self.deinitPartialData(&data, allocator);
+
+            inline for (std.meta.fields(Self.Fields)) |field| {
+                if (data_parsed.value.object.get(field.name)) |value| {
+                    const value_parsed = try std.json.parseFromValue(
+                        field.type.Value,
+                        allocator,
+                        value,
+                        .{},
+                    );
+
+                    defer value_parsed.deinit();
+
+                    const allocated_value = try field.type.init(allocator, value_parsed.value);
+                    @field(data, field.name) = field.type.OptionalValue{ .some = allocated_value };
+                }
+            }
+
+            return data;
+        }
+
+        // XXX
+        pub fn deinitPartialData(self: *const Self.PartialData, allocator: std.mem.Allocator) void {
+            inline for (std.meta.fields(Self.Fields)) |field| {
+                switch (@field(self, field.name)) {
+                    .some => |value| {
+                        field.type.deinit(allocator, value);
+                    },
+                    .none => {},
+                }
+            }
+        }
+
         // instance data
         data: Data = undefined,
 
@@ -192,12 +242,28 @@ test "general model usage" {
 
     defer heap_vehicle.deinit(std.testing.allocator);
 
-    // model data
+    // partial data on the stack
     const partial_data: Vehicle.PartialData = .{
         .model = .{ .some = "Tenere 700" },
+        .model_year = .{ .some = 2024 },
     };
 
-    _ = partial_data; // XXX: actually test using this somehow
+    // parse partial data on the heap
+    const sample_partial_json =
+        \\{
+        \\  "model": "Tenere 700",
+        \\  "model_year": 2024
+        \\}
+    ;
+
+    var sample_partial_fbs = std.io.fixedBufferStream(sample_partial_json);
+    const parsed_partial_data = try Vehicle.parsePartialData(std.testing.allocator, sample_partial_fbs.reader());
+    defer Vehicle.deinitPartialData(&parsed_partial_data, std.testing.allocator);
+
+    try std.testing.expectEqual(partial_data.vin, parsed_partial_data.vin);
+    try std.testing.expectEqual(partial_data.manufacturer, parsed_partial_data.manufacturer);
+    try std.testing.expectEqualSlices(u8, partial_data.model.some, parsed_partial_data.model.some);
+    try std.testing.expectEqual(partial_data.model_year, parsed_partial_data.model_year);
 }
 
 pub const User = Model("user", "id", struct {
