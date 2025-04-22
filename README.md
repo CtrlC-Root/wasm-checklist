@@ -17,7 +17,7 @@ python -m http.server -d ./zig-out/web/ 8000  # serve web client content
 export CURL_POST="curl -X POST -H 'Content-Type: application/json'"
 $CURL_POST --data '{"display_name": "john"}' http://localhost:8080/user
 $CURL_POST --data '{"display_name": "jane"}' http://localhost:8080/user
-$CURL_POST --data '{"owner_user_id": 0, "title": "Today"}' http://localhost:8080/checklist
+$CURL_POST --data '{"created_by_user_id": 1, "title": "Today"}' http://localhost:8080/checklist
 ```
 
 Open browser to `http://localhost:8000/` to use the application.
@@ -31,6 +31,10 @@ zig build -Doptimize=ReleaseSmall  # or ReleaseFast
 ```
 
 ## References
+
+Third party libraries:
+
+* [zigster64/zts](https://github.com/zigster64/zts)
 
 Future improvements:
 
