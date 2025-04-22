@@ -11,6 +11,7 @@ const task = @import("task.zig");
 const PackedByteSlice = memory.PackedByteSlice;
 
 // third-party
+const model = @import("model");
 const zts = @import("zts");
 
 // testing related import processing
@@ -121,8 +122,50 @@ fn viewDashboard(
         .response => |response| response,
     };
 
-    // XXX
-    _ = checklists_response;
+    // extract checklists from response
+    const checklists = blk: {
+        // parse the checklists response content
+        var buffer_stream = std.io.fixedBufferStream(checklists_response.content);
+        var json_reader = std.json.reader(request_allocator, buffer_stream.reader());
+        defer json_reader.deinit();
+
+        const data_parsed = try std.json.parseFromTokenSource(
+            []model.Checklist.Data,
+            request_allocator,
+            &json_reader,
+            .{},
+        );
+
+        defer data_parsed.deinit();
+
+        // create model instances from response data
+        var checklists = std.ArrayList(model.Checklist).init(request_allocator);
+        errdefer {
+            for (checklists.items) |checklist| {
+                checklist.deinit(request_allocator);
+            }
+
+            checklists.deinit();
+        }
+
+        for (data_parsed.value) |checklist_data| {
+            var checklist: model.Checklist = .{};
+            try checklist.init(request_allocator, &checklist_data);
+            errdefer checklist.deinit(request_allocator);
+
+            try checklists.append(checklist);
+        }
+
+        break :blk try checklists.toOwnedSlice();
+    };
+
+    defer {
+        for (checklists) |checklist| {
+            checklist.deinit(request_allocator);
+        }
+
+        request_allocator.free(checklists);
+    }
 
     // XXX
     const template = @embedFile("templates/dashboard.html");
@@ -133,6 +176,14 @@ fn viewDashboard(
 
     try zts.writeHeader(template, writer); // XXX: only on full page load
     try zts.print(template, "checklist-list-start", .{}, writer);
+
+    for (checklists) |checklist| {
+        try zts.print(template, "checklist-list-item", .{
+            .id = checklist.data.id,
+            .title = checklist.data.title,
+        }, writer);
+    }
+
     try zts.print(template, "checklist-list-end", .{}, writer);
     try zts.print(template, "footer", .{}, writer); // XXX: only on full page load
 

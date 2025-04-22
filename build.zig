@@ -94,6 +94,9 @@ pub fn build(b: *std.Build) void {
     const run_server_unit_tests = b.addRunArtifact(server_unit_tests);
 
     // XXX
+    const server_model_source_file = b.path("pkg/server/model.zig");
+
+    // XXX
     const run_server_executable = b.addRunArtifact(server_executable);
     run_server_executable.step.dependOn(b.getInstallStep());
 
@@ -121,6 +124,11 @@ pub fn build(b: *std.Build) void {
 
     application_executable.root_module.addOptions("build", build_options);
     application_executable.root_module.addImport("zts", wasm_zts_dependency.module("zts"));
+    application_executable.root_module.addImport("model", b.createModule(.{
+        .root_source_file = server_model_source_file,
+        .target = wasm_target,
+        .optimize = optimize,
+    }));
 
     application_executable.entry = .disabled; // no default entry point
     application_executable.rdynamic = true; // expose exported functions
@@ -135,6 +143,11 @@ pub fn build(b: *std.Build) void {
 
     application_unit_tests.root_module.addOptions("build", build_options);
     application_unit_tests.root_module.addImport("zts", wasm_zts_dependency.module("zts"));
+    application_unit_tests.root_module.addImport("model", b.createModule(.{
+        .root_source_file = server_model_source_file,
+        .target = local_target,
+        .optimize = optimize,
+    }));
 
     const run_application_unit_tests = b.addRunArtifact(application_unit_tests);
 
