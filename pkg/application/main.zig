@@ -185,6 +185,7 @@ fn viewDashboard(
     }
 
     try zts.print(template, "checklist-list-end", .{}, writer);
+    try zts.print(template, "checklist-form-start", .{}, writer); // XXX: only if authenticated
     try zts.print(template, "footer", .{}, writer); // XXX: only on full page load
 
     const output = try buffer.toOwnedSlice(request_allocator);
