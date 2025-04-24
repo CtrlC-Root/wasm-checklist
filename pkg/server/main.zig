@@ -71,7 +71,10 @@ fn processModelRequest(
                 try request.respond(response, .{
                     .extra_headers = &.{
                         .{ .name = "Content-Type", .value = "application/json" },
+                        // CORS
                         .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Methods", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Headers", .value = "*" },
                     },
                 });
             },
@@ -95,6 +98,12 @@ fn processModelRequest(
 
                 try request.respond(response, .{
                     .status = std.http.Status.created,
+                    .extra_headers = &.{
+                        // CORS
+                        .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Methods", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Headers", .value = "*" },
+                    },
                 });
             },
             else => {
@@ -130,6 +139,10 @@ fn processModelRequest(
                 try request.respond(response, .{
                     .extra_headers = &.{
                         .{ .name = "Content-Type", .value = "application/json" },
+                        // CORS
+                        .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Methods", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Headers", .value = "*" },
                     },
                 });
             },
@@ -159,6 +172,12 @@ fn processModelRequest(
                 std.debug.print("{s}: instance updated: {d}\n", .{ Model.name, instance_id });
                 try request.respond("", .{
                     .status = std.http.Status.no_content,
+                    .extra_headers = &.{
+                        // CORS
+                        .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Methods", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Headers", .value = "*" },
+                    },
                 });
             },
             // delete instance
@@ -178,6 +197,12 @@ fn processModelRequest(
                 std.debug.print("{s}: destroyed instance: {d}\n", .{ Model.name, instance_id });
                 try request.respond("", .{
                     .status = std.http.Status.no_content,
+                    .extra_headers = &.{
+                        // CORS
+                        .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Methods", .value = "*" },
+                        .{ .name = "Access-Control-Allow-Headers", .value = "*" },
+                    },
                 });
             },
             else => {
@@ -195,6 +220,21 @@ fn processRequest(
     datastore: *store.DataStore,
     request: *std.http.Server.Request,
 ) !void {
+    // options pre-flight requests
+    if (request.head.method == .OPTIONS) {
+        try request.respond("", .{
+            .extra_headers = &.{
+                // CORS
+                .{ .name = "Access-Control-Allow-Origin", .value = "*" },
+                .{ .name = "Access-Control-Allow-Methods", .value = "*" },
+                .{ .name = "Access-Control-Allow-Headers", .value = "*" },
+            },
+        });
+
+        return;
+    }
+
+    // model endpoints
     const model_types: [3]type = .{ model.User, model.Checklist, model.Item };
     inline for (model_types) |model_type| {
         const leaf_url = std.fmt.comptimePrint("/{s}", .{model_type.name});

@@ -9,6 +9,7 @@ const http = @import("http.zig");
 const task = @import("task.zig");
 
 const PackedByteSlice = memory.PackedByteSlice;
+const viewChecklist = @import("checklist/view.zig").view;
 const viewDashboard = @import("dashboard/view.zig").view;
 
 // testing related import processing
@@ -96,14 +97,17 @@ fn invokeInternal(request_id: u32, request: *const http.Request) !http.Response 
         return try response_builder.toOwned(client.allocator);
     }
 
+    // checklist
+    if (std.mem.startsWith(u8, request_path, "/app/checklist/")) {
+        try viewChecklist(request_allocator, request_id, request, &response_builder);
     // dashboard
-    if (std.mem.eql(u8, request_path, "/app")) {
+    } else if (std.mem.eql(u8, request_path, "/app")) {
         try viewDashboard(request_allocator, request_id, request, &response_builder);
-        return try response_builder.toOwned(client.allocator);
+    // generic fallthrough for unknown routes
+    } else {
+        response_builder.setStatus(.not_found);
     }
 
-    // generic fallthrough for unknown routes
-    response_builder.setStatus(.not_found);
     return try response_builder.toOwned(client.allocator);
 }
 

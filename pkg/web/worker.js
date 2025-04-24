@@ -68,7 +68,15 @@ const responseToObject = async function (response) {
 // XXX: refactor this elsewhere (maybe into a wrapper type)
 // https://developer.mozilla.org/en-US/docs/Web/API/Response
 const responseFromObject = async function (data) {
-  return new Response(data.content, {
+  var content = data.content;
+  if (data.status == 101 || data.status == 204 || data.status == 205 || data.status == 304) {
+    // null body status response cannot have content
+    // https://fetch.spec.whatwg.org/#statuses
+    console.assert(data.content.length == 0);
+    content = null;
+  }
+
+  return new Response(content, {
     status: data.status,
     headers: Object.fromEntries(data.headers.map((header) => {
       return [header.name, header.value];

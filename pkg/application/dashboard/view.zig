@@ -26,11 +26,6 @@ pub fn view(
 
         var request_builder: http.RequestBuilder = undefined;
         request_builder.init(request_allocator);
-        // XXX: we actually want this, if we care about freeing memory, but
-        // only if we're not returning error.WouldBlock below, except in this
-        // case request_allocator happens to be an arena allocator so freeing
-        // any allocated memory does nothing, which means it's safe to skip
-        // errdefer request_builder.deinit();
 
         try request_builder.setUrl("http://localhost:8080/checklist"); // TODO: fill in origin based on incoming request or config
         request_builder.setMethod(.GET);

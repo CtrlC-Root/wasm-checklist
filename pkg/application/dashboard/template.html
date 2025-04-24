@@ -33,9 +33,12 @@
 <div id="app">
   .checklist-list-start
   <h1>Checklists</h1>
-  <ul>
+  <ul hx-target="closest li" hx-swap="outerHTML">
     .checklist-list-item
-    <li id="checklist-{[id]}">{[title]s} <button>Delete</button></li>
+    <li id="checklist-{[id]}">
+      <a href="/app/checklist/{[id]}">{[title]s}</a>
+      <button hx-delete="/app/checklist/{[id]}">Delete</button>
+    </li>
   .checklist-list-end
   </ul>
 
