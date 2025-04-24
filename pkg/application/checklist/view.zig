@@ -16,6 +16,11 @@ pub fn view(
     request: *const http.Request,
     response_builder: *http.ResponseBuilder,
 ) !void {
+    // create new checklist
+    // if (request.method == .POST) {
+    //     // TODO: create new checklist
+    // }
+
     // XXX: parse checklist id
     const checklist_id_index = std.mem.lastIndexOf(u8, request.url, "/") orelse {
         response_builder.setStatus(.bad_request);
@@ -31,6 +36,9 @@ pub fn view(
 
     // switch on request verb
     switch (request.method) {
+        // .PATCH => {
+        //     // TODO: update checklist
+        // },
         .DELETE => {
             const task_id: task.TaskMultiHashMap.TaskId = 0;
             const task_entry = try main.client.tasks.getOrPut(main.client.allocator, request_id, task_id);

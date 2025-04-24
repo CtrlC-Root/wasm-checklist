@@ -29,6 +29,21 @@
 })();
 </script>
 
+<style>
+form {
+  display: block;
+  width: fit-content;
+  padding: 0.5em;
+  border: 1px solid #ccc;
+}
+
+form div {
+  display: block;
+  width: fit-content;
+  margin: 0.25em 0;
+}
+</style>
+
 <!-- content -->
 <div id="app">
   .checklist-list-start
@@ -43,10 +58,23 @@
   </ul>
 
   .checklist-form-start
-  <form>
-    <label for="title">Title:</label>
-    <input type="text" id="title" name="title">
-    <button type="submit">Create</button>
+  <form hx-post="/app/checklist">
+    <div>
+      <label for="created_by_user_id">User:</label>
+      <select id="created_by_user_id" name="created_by_user_id">
+        <option value="1">John Doe</option>
+        <option value="2">Jane Doe</option>
+      </select>
+    </div>
+
+    <div>
+      <label for="title">Title:</label>
+      <input type="text" id="title" name="title">
+    </div>
+
+    <div>
+      <button type="submit">Create</button>
+    </div>
   </form>
 .footer
 </div>

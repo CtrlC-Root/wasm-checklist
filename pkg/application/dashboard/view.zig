@@ -18,6 +18,8 @@ pub fn view(
 ) !void {
     _ = request;
 
+    // TODO: retrieve users
+
     // retrieve checklists
     const checklists_task_id: task.TaskMultiHashMap.TaskId = 0;
     const checklists_task_entry = try main.client.tasks.getOrPut(main.client.allocator, request_id, checklists_task_id);
