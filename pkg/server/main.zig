@@ -93,12 +93,13 @@ fn processModelRequest(
                 std.debug.print("{s}: created instance: {d}\n", .{ Model.name, instance_id });
 
                 // inform the client of the new instance
-                const response = try std.fmt.allocPrint(allocator, "{d}", .{instance_id});
+                const response = try std.fmt.allocPrint(allocator, "{}", .{instance_id});
                 defer allocator.free(response);
 
                 try request.respond(response, .{
                     .status = std.http.Status.created,
                     .extra_headers = &.{
+                        .{ .name = "Content-Type", .value = "text/plain" },
                         // CORS
                         .{ .name = "Access-Control-Allow-Origin", .value = "*" },
                         .{ .name = "Access-Control-Allow-Methods", .value = "*" },

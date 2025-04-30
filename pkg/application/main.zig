@@ -98,7 +98,7 @@ fn invokeInternal(request_id: u32, request: *const http.Request) !http.Response 
     }
 
     // checklist
-    if (std.mem.startsWith(u8, request_path, "/app/checklist/")) {
+    if (std.mem.eql(u8, request_path, "/app/checklist") or std.mem.startsWith(u8, request_path, "/app/checklist/")) {
         try viewChecklist(request_allocator, request_id, request, &response_builder);
     // dashboard
     } else if (std.mem.eql(u8, request_path, "/app")) {
@@ -147,7 +147,9 @@ fn collectTaskIds(request_id: u32) ![]const u32 {
     while (task_iterator.next()) |entry| {
         // XXX
         if (task.TaskMultiHashMap.unpackKeyTaskId(entry.key_ptr.*, request_id)) |task_id| {
-            try task_ids.append(task_id);
+            if (entry.value_ptr.*.pending()) {
+                try task_ids.append(task_id);
+            }
         }
     }
 
@@ -298,7 +300,25 @@ export fn completeTask(request_id: u32, task_id: u32, data: PackedByteSlice) Pac
                 defer result_parsed.deinit();
 
                 // update the task
-                http_task.result = result_parsed.value;
+                http_task.result = switch (result_parsed.value) {
+                    .response => |response| blk: {
+                        // XXX: what an ugly hack to allocate a response object
+                        var rb: http.ResponseBuilder = undefined;
+                        rb.init(client.allocator);
+                        errdefer rb.deinit();
+
+                        rb.setStatus(response.status);
+                        rb.setContent(response.content) catch unreachable;
+
+                        for (response.headers) |header| {
+                            rb.setHeader(header.name, header.value) catch unreachable;
+                        }
+
+                        break :blk task.HttpTask.Result{ .response = (rb.toOwned(client.allocator) catch unreachable) };
+                    },
+                    .@"error" => |value| task.HttpTask.Result{ .@"error" = value },
+                    .none => task.HttpTask.Result.none,
+                };
             },
         }
 

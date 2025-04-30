@@ -24,6 +24,13 @@ pub fn Task(
 
         request: Self.Request = undefined,
         result: Self.Result = undefined,
+
+        pub fn pending(self: Self) bool {
+            return switch (self.result) {
+                .none => true,
+                else => false,
+            };
+        }
     };
 }
 
@@ -66,6 +73,12 @@ pub const TaskMultiHashMap = struct {
 
     pub const Value = union(enum) {
         http: HttpTask,
+
+        pub fn pending(self: Value) bool {
+            return switch (self) {
+                inline else => |value| value.pending(),
+            };
+        }
     };
 
     pub const HashMap = std.AutoHashMapUnmanaged(Self.Key, Self.Value);
