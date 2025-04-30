@@ -24,7 +24,7 @@ Open browser to `http://localhost:8000/` to use the application.
 
 ## Release
 
-TODO
+Build application and server optimizing for small size or fast execution:
 
 ```bash
 zig build -Doptimize=ReleaseSmall  # or ReleaseFast
