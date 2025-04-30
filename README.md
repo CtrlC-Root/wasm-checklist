@@ -1,6 +1,6 @@
 # Checklist Application
 
-A demo cross-platform application written mostly in Zig for managing checklists.
+A prototype cross-platform application written mostly in Zig for managing checklists.
 
 ## Development
 

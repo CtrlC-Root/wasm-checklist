@@ -90,6 +90,8 @@ export class DataBuffer {
 
   constructor(dataType, value) {
     this.#dataType = dataType;
+
+    // XXX: call for side effect of throwing error for unsupported data type
     DataBuffer.describeDataType(this.#dataType);
 
     if (value instanceof ArrayBuffer) {
@@ -167,12 +169,12 @@ export class DataBuffer {
         );
       }
 
-      // account for array element size in bytes
+      // typed array length is in elements (not bytes)
+      console.assert((slice.byteLength % this.#dataType.BYTES_PER_ELEMENT) == 0);
       return new this.#dataType(
         slice.memory.buffer,
         slice.pointer,
-        // XXX: validate this is integer division with no remainder
-        slice.byteLength / this.#dataType.BYTES_PER_ELEMENT
+        Math.floor(slice.byteLength / this.#dataType.BYTES_PER_ELEMENT)
       );
     } else {
       console.assert(this.#packedSlice == null);
